@@ -197,8 +197,15 @@ replace_once(
             playerInfo.FriendCode = sender.Client.FriendCode;""",
     """            playerInfo.ClientId = sender.Client.Id;
             playerInfo.CurrentOutfit.PlayerName = sender.Client.Name;
-            playerInfo.CurrentOutfit.Color = Impostor.Api.Innersloth.Customization.ColorType.Cyan;
-            playerInfo.CurrentOutfit.HatId = "hat_NoHat";
+            // The public-lobby watcher has a fixed identity: Blue, even if
+            // another player already selected Blue. This is assigned directly
+            // by the server before PlayerInfo is spawned, bypassing client color
+            // availability checks; the server remains authoritative.
+            var isSxbWatcher = sender.Client.Name == "SXBWatcher";
+            playerInfo.CurrentOutfit.Color = isSxbWatcher
+                ? Impostor.Api.Innersloth.Customization.ColorType.Blue
+                : Impostor.Api.Innersloth.Customization.ColorType.Cyan;
+            playerInfo.CurrentOutfit.HatId = isSxbWatcher ? "hat_TopHat" : "hat_NoHat";
             playerInfo.CurrentOutfit.PetId = "pet_EmptyPet";
             playerInfo.CurrentOutfit.SkinId = "skin_None";
             playerInfo.CurrentOutfit.VisorId = "visor_EmptyVisor";
