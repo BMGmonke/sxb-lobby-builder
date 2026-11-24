@@ -161,7 +161,7 @@ replace_once(
             playerInfo.FriendCode = sender.Client.FriendCode;""",
     """            playerInfo.ClientId = sender.Client.Id;
             playerInfo.CurrentOutfit.PlayerName = sender.Client.Name;
-            playerInfo.CurrentOutfit.Color = ColorType.Cyan;
+            playerInfo.CurrentOutfit.Color = Impostor.Api.Innersloth.Customization.ColorType.Cyan;
             playerInfo.FriendCode = sender.Client.FriendCode;""",
     "SXB PlayerInfo identity")
 
