@@ -141,3 +141,116 @@ if "SpawnSxbPlayerControlAsync" not in s:
     p.write_text(s.replace(old, new, 1))
 
 print("SXB server spawn patch complete")
+
+
+# Give SXB-created PlayerInfo objects a complete, non-placeholder outfit.
+replace_once(
+    "src/Impostor.Api/Innersloth/Customization/PlayerOutfit.cs",
+    "            internal set => SetField(ref _playerName, value);",
+    "            set => SetField(ref _playerName, value);",
+    "PlayerOutfit name setter")
+replace_once(
+    "src/Impostor.Api/Innersloth/Customization/PlayerOutfit.cs",
+    "            internal set => SetField(ref _color, value);",
+    "            set => SetField(ref _color, value);",
+    "PlayerOutfit color setter")
+
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """            playerInfo.ClientId = sender.Client.Id;
+            playerInfo.FriendCode = sender.Client.FriendCode;""",
+    """            playerInfo.ClientId = sender.Client.Id;
+            playerInfo.CurrentOutfit.PlayerName = sender.Client.Name;
+            playerInfo.CurrentOutfit.Color = ColorType.Cyan;
+            playerInfo.FriendCode = sender.Client.FriendCode;""",
+    "SXB PlayerInfo identity")
+
+# The protocol-only host must publish the map and game-manager net objects;
+# otherwise clients enter OnlineGame without a ship and remain in a void.
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/ShipStatus/InnerShipStatus.cs",
+    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+        {
+            return new ValueTask<bool>(false);
+        }""",
+    "ShipStatus spawn serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/GameManager/InnerGameManager.cs",
+    """    public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+    {
+        throw new System.NotImplementedException();
+    }""",
+    """    public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+    {
+        return new ValueTask<bool>(false);
+    }""",
+    "GameManager spawn serializer")
+
+p = Path("src/Impostor.Server/Net/State/Game.Data.cs")
+s = p.read_text()
+anchor = """                        sender.Scene = scene;
+
+                        _logger.LogTrace("> Scene {0} to {1}", clientId, sender.Scene);
+
+                        await SyncServerObjectsAsync(sender);"""
+replacement = """                        sender.Scene = scene;
+
+                        _logger.LogTrace("> Scene {0} to {1}", clientId, sender.Scene);
+
+                        await EnsureSxbWorldObjectsAsync(sender);
+                        await SyncServerObjectsAsync(sender);"""
+if "EnsureSxbWorldObjectsAsync" not in s:
+    if anchor not in s: raise SystemExit("SceneChange world-object insertion anchor missing")
+    s = s.replace(anchor, replacement, 1)
+    marker = """        private async ValueTask SyncServerObjectsAsync(ClientPlayer sender)
+        {"""
+    method = """        private async ValueTask EnsureSxbWorldObjectsAsync(ClientPlayer sender)
+        {
+            if (Host?.Client.Name != "BMGmonke?!" && sender.Client.Name is not ("SXBWatcher" or "BMGmonke?!"))
+            {
+                return;
+            }
+
+            if (!_allObjects.Values.OfType<InnerShipStatus>().Any())
+            {
+                var ship = (InnerShipStatus)ActivatorUtilities.CreateInstance(
+                    _serviceProvider, typeof(InnerSkeldShipStatus), this);
+                ship.SpawnFlags = SpawnFlags.None;
+                ship.NetId = _nextNetId++;
+                ship.OwnerId = ServerOwned;
+                if (!AddNetObject(ship))
+                {
+                    throw new InvalidOperationException("Could not register the SXB Skeld ship object.");
+                }
+                await OnSpawnAsync(sender, ship);
+                await SendObjectSpawnAsync(ship);
+                _logger.LogInformation("Published Skeld ship object for SXB lobby {Code}.", Code);
+            }
+
+            if (!_allObjects.Values.OfType<InnerGameManager>().Any())
+            {
+                var manager = (InnerGameManager)ActivatorUtilities.CreateInstance(
+                    _serviceProvider, typeof(InnerNormalGameManager), this);
+                manager.SpawnFlags = SpawnFlags.None;
+                manager.NetId = _nextNetId++;
+                manager.OwnerId = ServerOwned;
+                if (!AddNetObject(manager))
+                {
+                    throw new InvalidOperationException("Could not register the SXB normal game manager.");
+                }
+                await OnSpawnAsync(sender, manager);
+                await SendObjectSpawnAsync(manager);
+                _logger.LogInformation("Published normal game manager for SXB lobby {Code}.", Code);
+            }
+        }
+
+"""
+    if marker not in s: raise SystemExit("SyncServerObjects method insertion point missing")
+    s = s.replace(marker, method + marker, 1)
+    p.write_text(s)
+
+print("SXB map/player initialization patch complete")
