@@ -812,7 +812,7 @@ replace_once(
         if (filtersList == null || filtersList.FilterSets.Count == 0)""",
     """    public IEnumerable<IGame> FindListingsV2(HttpContext ctx, GameFiltersList filtersList, int maxListings = 10)
     {
-        if (ctx.Connection.RemoteIpAddress?.IsLoopback == true &&
+        if (ctx.Connection.RemoteIpAddress is { } remoteIp && System.Net.IPAddress.IsLoopback(remoteIp) &&
             ctx.Request.Headers.TryGetValue("X-SXB-Watcher", out var watcherHeader) &&
             watcherHeader == "SXBWatcher-local-listing")
         {
