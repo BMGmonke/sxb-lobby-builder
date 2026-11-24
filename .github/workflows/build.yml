@@ -532,6 +532,7 @@ jobs:
           config["Server"]["ListenPort"] = 22023
           config["HttpServer"]["ListenIp"] = "127.0.0.1"
           config["HttpServer"]["ListenPort"] = 22023
+          config["Compatibility"]["AllowHostAuthority"] = True
           p.write_text(json.dumps(config))
           PY
           dotnet Impostor.Server.dll > "$RUNNER_TEMP/sxb-server-smoke.log" 2>&1 &
