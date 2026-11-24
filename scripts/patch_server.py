@@ -109,7 +109,8 @@ old = """            await SendObjectSpawnAsync(playerInfo);
         }
 
         private async ValueTask DespawnPlayerInfoAsync"""
-new = """            // PlayerInfo is the lobby roster entry. Broadcast it to every
+new = """            var sxbMode = Host?.Client.Name == "BMGmonke?!" || sender.Client.Name is "SXBWatcher" or "BMGmonke?!";
+            // PlayerInfo is the lobby roster entry. Broadcast it to every
             // connected lobby member, including clients whose Scene has not
             // reached OnlineGame yet; filtering by Scene can make a joined bot
             // invisible to the host during lobby synchronization.
