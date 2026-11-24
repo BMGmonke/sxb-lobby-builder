@@ -250,7 +250,7 @@ jobs:
                           }
 
                           Log.Information("BMGmonke?! is staying connected. The lobby remains open for humans until the host process is stopped.");
-                          await Task.Delay(Timeout.InfiniteTimeSpan);
+                          await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan);
                       }
                       finally
                       {
