@@ -35,6 +35,8 @@ jobs:
           cat > src/Impostor.Client.App/Program.cs <<'CS'
           using System;
           using System.Net;
+          using System.Net.Http;
+          using System.Text.Json;
           using System.Threading.Tasks;
           using Impostor.Api.Games;
           using Impostor.Api.Innersloth;
@@ -68,6 +70,105 @@ jobs:
                       return writer;
                   }
 
+
+                  private static readonly string FilterJson =
+                      "{\"FilterSets\":[{\"GameMode\":1,\"Filters\":[{\"OptionType\":\"languages\",\"Key\":\"Language\",\"SubFilterString\":\"{\\\"FilterType\\\":\\\"languages\\\",\\\"AcceptedValues\\\":256}\"},{\"OptionType\":\"chat\",\"Key\":\"Chat\",\"SubFilterString\":\"{\\\"FilterType\\\":\\\"chat\\\",\\\"AcceptedValues\\\":3}\"}]}]}";
+
+                  private static async Task WatchForLobby(ObjectPool<MessageReader> readerPool)
+                  {
+                      using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                      var url = "http://127.0.0.1:22023/api/games/filtered?filter=" + Uri.EscapeDataString(FilterJson);
+                      var seen = new System.Collections.Generic.HashSet<int>();
+                      Log.Information("SXBWatcher is scanning for public Normal lobbies every 5 seconds.");
+                      while (true)
+                      {
+                          try
+                          {
+                              using var response = await http.GetAsync(url);
+                              response.EnsureSuccessStatusCode();
+                              using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                              if (doc.RootElement.TryGetProperty("games", out var games) && games.ValueKind == JsonValueKind.Array)
+                              {
+                                  foreach (var game in games.EnumerateArray())
+                                  {
+                                      var id = game.GetProperty("GameId").GetInt32();
+                                      if (!seen.Add(id)) continue;
+                                      var ipNumber = game.GetProperty("IP").GetUInt32();
+                                      var port = game.GetProperty("Port").GetUInt16();
+                                      var code = new GameCode(id);
+                                      Log.Information("New lobby detected: {Code} at {Ip}:{Port}. Attempting join.", code.Code, new IPAddress((long)ipNumber), port);
+                                      if (await JoinLobby(code, new IPEndPoint(new IPAddress((long)ipNumber), port), readerPool))
+                                      {
+                                          Log.Information("SXBWatcher joined lobby {Code}. Staying connected for inspection.", code.Code);
+                                          await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan);
+                                      }
+                                      Log.Warning("Join attempt for {Code} failed. Continuing scan.", code.Code);
+                                  }
+                              }
+                          }
+                          catch (Exception ex)
+                          {
+                              Log.Warning(ex, "Lobby scan failed; retrying in 5 seconds.");
+                          }
+                          await Task.Delay(TimeSpan.FromSeconds(5));
+                      }
+                  }
+
+                  private static async Task<bool> JoinLobby(GameCode gameCode, IPEndPoint endpoint, ObjectPool<MessageReader> readerPool)
+                  {
+                      using var connection = new UdpClientConnection(endpoint, readerPool);
+                      var joined = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                      connection.DataReceived = e =>
+                      {
+                          try
+                          {
+                              while (e.Message.Position < e.Message.Length)
+                              {
+                                  using var message = e.Message.ReadMessage();
+                                  if (message.Tag == MessageFlags.JoinedGame)
+                                  {
+                                      var receivedCode = message.ReadInt32();
+                                      var playerId = message.ReadInt32();
+                                      var hostId = message.ReadInt32();
+                                      if (receivedCode == gameCode.Value)
+                                      {
+                                          Log.Information("SXBWatcher received JoinedGame: player {PlayerId}, lobby host {HostId}.", playerId, hostId);
+                                          joined.TrySetResult(true);
+                                      }
+                                  }
+                              }
+                          }
+                          catch (Exception ex) { Log.Error(ex, "Could not decode watcher join response."); }
+                          return default;
+                      };
+                      connection.Disconnected = e =>
+                      {
+                          Log.Warning("SXBWatcher disconnected: {Reason}", e.Reason);
+                          joined.TrySetResult(false);
+                          return default;
+                      };
+
+                      var handshake = CreateHandshake("SXBWatcher");
+                      try { await connection.ConnectAsync(handshake.ToByteArray(false)); }
+                      finally { handshake.Recycle(); }
+
+                      var request = MessageWriter.Get(MessageType.Reliable);
+                      try
+                      {
+                          request.StartMessage(MessageFlags.JoinGame);
+                          request.Write(gameCode.Value);
+                          request.Write(false);
+                          request.EndMessage();
+                          await connection.SendAsync(request);
+                      }
+                      finally { request.Recycle(); }
+
+                      var completed = await Task.WhenAny(joined.Task, Task.Delay(TimeSpan.FromSeconds(12)));
+                      if (completed != joined.Task || !await joined.Task) return false;
+                      await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan);
+                      return true;
+                  }
+
                   private static async Task Main(string[] args)
                   {
                       Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
@@ -76,6 +177,21 @@ jobs:
                       services.AddHazel();
                       using var serviceProvider = services.BuildServiceProvider();
                       var readerPool = serviceProvider.GetRequiredService<ObjectPool<MessageReader>>();
+
+                      if (args.Length > 0 && args[0] == "--watch")
+                      {
+                          await WatchForLobby(readerPool);
+                          return;
+                      }
+
+                      if (args.Length > 0 && args[0] == "--join" && args.Length >= 4)
+                      {
+                          var targetCode = new GameCode(args[1]);
+                          var targetIp = IPAddress.Parse(args[2]);
+                          var targetPort = ushort.Parse(args[3]);
+                          await JoinLobby(targetCode, new IPEndPoint(targetIp, targetPort), readerPool);
+                          return;
+                      }
 
                       var lobbyCreated = new TaskCompletionSource<GameCode>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var botJoinedAsHost = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
