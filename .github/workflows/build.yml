@@ -127,6 +127,7 @@ jobs:
                       var joined = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var disconnected = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var joinedPlayerId = -1;
+                      var playerControlSpawned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                       connection.DataReceived = e =>
                       {
                           try
@@ -146,9 +147,34 @@ jobs:
                                           joined.TrySetResult(true);
                                       }
                                   }
+                                  else if (message.Tag == MessageFlags.GameData || message.Tag == MessageFlags.GameDataTo)
+                                  {
+                                      var receivedCode = message.ReadInt32();
+                                      if (message.Tag == MessageFlags.GameDataTo) message.ReadPackedInt32();
+                                      if (receivedCode != gameCode.Value) continue;
+                                      while (message.Position < message.Length)
+                                      {
+                                          using var gameData = message.ReadMessage();
+                                          if (gameData.Tag != 4) continue; // GameDataTag.SpawnFlag
+                                          var objectType = gameData.ReadPackedUInt32();
+                                          var ownerId = gameData.ReadPackedInt32();
+                                          gameData.ReadByte(); // SpawnFlags
+                                          var componentCount = gameData.ReadPackedInt32();
+                                          for (var component = 0; component < componentCount; component++)
+                                          {
+                                              gameData.ReadPackedUInt32(); // component NetId
+                                              using var payload = gameData.ReadMessage();
+                                          }
+                                          if (objectType == 4 && ownerId == joinedPlayerId)
+                                          {
+                                              Log.Information("SXBWatcher received its PlayerControl spawn ({ComponentCount} components, owner {OwnerId}).", componentCount, ownerId);
+                                              playerControlSpawned.TrySetResult(true);
+                                          }
+                                      }
+                                  }
                               }
                           }
-                          catch (Exception ex) { Log.Error(ex, "Could not decode watcher join response."); }
+                          catch (Exception ex) { Log.Error(ex, "Could not decode watcher join/synchronization response."); }
                           return default;
                       };
                       connection.Disconnected = e =>
@@ -208,7 +234,17 @@ jobs:
                       }
                       finally { clientReady.Recycle(); }
 
-                      Log.Information("SXBWatcher completed the lobby scene handshake; waiting for server synchronization.");
+                      Log.Information("SXBWatcher completed the lobby scene handshake; checking for its server-created PlayerControl.");
+                      var spawnResult = await Task.WhenAny(playerControlSpawned.Task, disconnected.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+                      if (spawnResult == playerControlSpawned.Task && await playerControlSpawned.Task)
+                      {
+                          Log.Information("SXBWatcher confirmed its PlayerControl was delivered by the server.");
+                      }
+                      else
+                      {
+                          Log.Warning("SXBWatcher joined but did not receive its PlayerControl spawn within 10 seconds.");
+                          return false;
+                      }
                       var disconnectReason = await disconnected.Task;
                       Log.Warning("SXBWatcher connection ended after joining: {Reason}", disconnectReason);
                       return false;
