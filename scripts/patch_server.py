@@ -254,3 +254,56 @@ if "EnsureSxbWorldObjectsAsync" not in s:
     p.write_text(s)
 
 print("SXB map/player initialization patch complete")
+
+# Serialize the actual Skeld systems and normal-game options. Empty spawn
+# payloads leave clients with a ShipStatus shell but no initialized systems.
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/ShipStatus/InnerShipStatus.cs",
+    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+        {
+            return new ValueTask<bool>(false);
+        }""",
+    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+        {
+            foreach (var system in _systems)
+            {
+                writer.StartMessage((int)system.Key);
+                system.Value.Serialize(writer, initialState);
+                writer.EndMessage();
+            }
+
+            return new ValueTask<bool>(true);
+        }""",
+    "ShipStatus system-state serializer")
+
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/GameManager/Logic/GameLogicComponent.cs",
+    """    public virtual ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+    {
+        throw new NotImplementedException();
+    }""",
+    """    public virtual ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+    {
+        return ValueTask.FromResult(true);
+    }""",
+    "Game logic empty-state serializer")
+
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/GameManager/InnerGameManager.cs",
+    """    public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+    {
+        return new ValueTask<bool>(false);
+    }""",
+    """    public override async ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+    {
+        for (var i = 0; i < _logicComponents.Count; i++)
+        {
+            writer.StartMessage(i);
+            await _logicComponents[i].SerializeAsync(writer, initialState);
+            writer.EndMessage();
+        }
+
+        return true;
+    }""",
+    "GameManager logic-state serializer")
+
