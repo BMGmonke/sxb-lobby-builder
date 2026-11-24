@@ -801,10 +801,10 @@ replace_once(
             }""",
     "SXB PlayerInfo in host-authoritative lobbies")
 
-// SXBWatcher runs on the same machine as the server. Let this loopback-only
-// watcher enumerate every public, joinable lobby without normal preference,
-// compatibility, language, map, chat-mode, or mod filters. This affects only
-// the listing response; normal game and anti-cheat validation remain enabled.
+# SXBWatcher runs on the same machine as the server. Let this loopback-only
+# watcher enumerate every public, joinable lobby without normal preference,
+# compatibility, language, map, chat-mode, or mod filters. This affects only
+# the listing response; normal game and anti-cheat validation remain enabled.
 replace_once(
     "src/Impostor.Server/Http/ListingManager.cs",
     """    public IEnumerable<IGame> FindListingsV2(HttpContext ctx, GameFiltersList filtersList, int maxListings = 10)
