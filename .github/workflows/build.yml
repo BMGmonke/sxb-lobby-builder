@@ -42,6 +42,7 @@ jobs:
           using Impostor.Api.Net.Messages.C2S;
           using Impostor.Api.Net.Messages.S2C;
           using Impostor.Hazel;
+          using Impostor.Hazel.Abstractions;
           using Impostor.Hazel.Extensions;
           using Impostor.Hazel.Udp;
           using Microsoft.Extensions.DependencyInjection;
