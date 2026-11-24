@@ -84,6 +84,7 @@ jobs:
                   private static async Task WatchForLobby(ObjectPool<MessageReader> readerPool)
                   {
                       using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                      http.DefaultRequestHeaders.Add("X-SXB-Watcher", "SXBWatcher-local-listing");
                       var url = "http://127.0.0.1:22023/api/games/filtered?filter=" + Uri.EscapeDataString(FilterJson);
                       var seen = new System.Collections.Generic.HashSet<int>();
                       Log.Information("SXBWatcher is scanning for public Normal lobbies every 5 seconds.");
