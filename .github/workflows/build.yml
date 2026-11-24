@@ -213,7 +213,11 @@ jobs:
                           var sceneChange = MessageWriter.Get(MessageType.Reliable);
                           try
                           {
+                              // Every GameData root message starts with the lobby code.
+                              // Omitting it makes the server parse the scene tag as a game code
+                              // and silently discard the scene transition.
                               sceneChange.StartMessage(MessageFlags.GameData);
+                              sceneChange.Write(gameCode.Value);
                               sceneChange.StartMessage(6); // GameDataTag.SceneChangeFlag
                               sceneChange.WritePacked(hostPlayerId);
                               sceneChange.Write("OnlineGame");
@@ -225,6 +229,24 @@ jobs:
                           finally
                           {
                               sceneChange.Recycle();
+                          }
+
+                          // Tell the server the host finished loading OnlineGame.
+                          var clientReady = MessageWriter.Get(MessageType.Reliable);
+                          try
+                          {
+                              clientReady.StartMessage(MessageFlags.GameData);
+                              clientReady.Write(gameCode.Value);
+                              clientReady.StartMessage(7); // GameDataTag.ClientReady
+                              clientReady.WritePacked(hostPlayerId);
+                              clientReady.EndMessage();
+                              clientReady.EndMessage();
+                              await botConnection.SendAsync(clientReady);
+                              Log.Information("BMGmonke?! sent ClientReady for host {PlayerId}.", hostPlayerId);
+                          }
+                          finally
+                          {
+                              clientReady.Recycle();
                           }
 
                           Log.Information("Waiting for host PlayerControl spawn; lobby is not ready for humans until this completes.");
