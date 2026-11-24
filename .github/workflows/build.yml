@@ -64,7 +64,7 @@ jobs:
 
                       var handshake = MessageWriter.Get(MessageType.Reliable);
                       handshake.Write(50666750);
-                      handshake.Write("SXBHost");
+                      handshake.Write("BMGmonke?!");
                       handshake.Write((uint)0);
                       handshake.Write((uint)Language.English);
                       handshake.Write((byte)QuickChatModes.FreeChatOrQuickChat);
@@ -124,14 +124,14 @@ jobs:
                           try
                           {
                               await connection.ConnectAsync(handshake.ToByteArray(false));
-                              Log.Information("Placeholder host connected; requesting a lobby.");
+                              Log.Information("BMGmonke?! bot host connected; requesting a lobby.");
                               await connection.SendAsync(createGame);
 
                               Log.Information("Waiting up to 15 seconds for the lobby code.");
                               var completed = await Task.WhenAny(lobbyCreated.Task, Task.Delay(TimeSpan.FromSeconds(15)));
                               if (completed == lobbyCreated.Task)
                               {
-                                  Log.Information("Lobby is ready. Join code: {GameCode}", await lobbyCreated.Task);
+                                  Log.Information("BMGmonke?! created the lobby. Join code: {GameCode}", await lobbyCreated.Task);
                                   Log.Information("Keeping the lobby open for 60 seconds.");
                                   await Task.Delay(TimeSpan.FromSeconds(60));
                               }
