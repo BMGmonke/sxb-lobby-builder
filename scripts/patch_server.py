@@ -228,8 +228,19 @@ if "EnsureSxbWorldObjectsAsync" not in s:
 
             if (!_allObjects.Values.OfType<InnerShipStatus>().Any())
             {
-                var ship = (InnerShipStatus)ActivatorUtilities.CreateInstance(
-                    _serviceProvider, typeof(InnerSkeldShipStatus), this);
+                // Match the network ShipStatus prefab to the map advertised
+                // in the lobby's GameOptions. Polus is the Dropship map.
+                var shipType = Options.Map switch
+                {
+                    MapTypes.Skeld => typeof(InnerSkeldShipStatus),
+                    MapTypes.MiraHQ => typeof(InnerMiraShipStatus),
+                    MapTypes.Polus => typeof(InnerPolusShipStatus),
+                    MapTypes.Dleks => typeof(InnerDleksShipStatus),
+                    MapTypes.Airship => typeof(InnerAirshipStatus),
+                    MapTypes.Fungle => typeof(InnerFungleShipStatus),
+                    _ => typeof(InnerSkeldShipStatus),
+                };
+                var ship = (InnerShipStatus)ActivatorUtilities.CreateInstance(_serviceProvider, shipType, this);
                 ship.SpawnFlags = SpawnFlags.None;
                 ship.NetId = _nextNetId++;
                 ship.OwnerId = ServerOwned;
