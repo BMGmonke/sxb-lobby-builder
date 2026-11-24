@@ -408,6 +408,40 @@ jobs:
         working-directory: impostor
         run: dotnet publish src/Impostor.Client.App/Impostor.Client.App.csproj -c Release -r linux-arm64 --self-contained false -p:UseAppHost=false -o ../publish
 
+      - name: Smoke test Polus map and player spawn serialization
+        working-directory: impostor
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish src/Impostor.Server/Impostor.Server.csproj -c Release -r linux-x64 --self-contained false -p:UseAppHost=false -o ../server-smoke
+          dotnet publish src/Impostor.Client.App/Impostor.Client.App.csproj -c Release -r linux-x64 --self-contained false -p:UseAppHost=false -o ../host-smoke
+
+          cd ../server-smoke
+          dotnet Impostor.Server.dll > "$RUNNER_TEMP/sxb-server-smoke.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          sleep 5
+
+          cd ../host-smoke
+          set +e
+          timeout 25s dotnet Impostor.Client.App.dll > "$RUNNER_TEMP/sxb-host-smoke.log" 2>&1
+          set -e
+
+          echo "===== SXB host smoke-test log ====="
+          cat "$RUNNER_TEMP/sxb-host-smoke.log"
+          echo "===== Impostor server smoke-test log ====="
+          tail -n 160 "$RUNNER_TEMP/sxb-server-smoke.log"
+
+          grep -q "Lobby created. Code:" "$RUNNER_TEMP/sxb-host-smoke.log"
+          grep -q "BMGmonke?! joined as the actual lobby host" "$RUNNER_TEMP/sxb-host-smoke.log"
+          grep -q "Published Polus ship object" "$RUNNER_TEMP/sxb-server-smoke.log"
+          grep -q "Spawned server-side PlayerControl" "$RUNNER_TEMP/sxb-server-smoke.log"
+          if grep -q "NotImplementedException" "$RUNNER_TEMP/sxb-server-smoke.log"; then
+            echo "Smoke test failed: an unimplemented serializer crashed object spawning."
+            exit 1
+          fi
+          echo "SXB Polus ShipStatus and PlayerControl spawn smoke test passed."
+
       - name: Upload client artifact
         uses: actions/upload-artifact@v4
         with:
