@@ -800,3 +800,29 @@ replace_once(
                 return;
             }""",
     "SXB PlayerInfo in host-authoritative lobbies")
+
+// SXBWatcher runs on the same machine as the server. Let this loopback-only
+// watcher enumerate every public, joinable lobby without normal preference,
+// compatibility, language, map, chat-mode, or mod filters. This affects only
+// the listing response; normal game and anti-cheat validation remain enabled.
+replace_once(
+    "src/Impostor.Server/Http/ListingManager.cs",
+    """    public IEnumerable<IGame> FindListingsV2(HttpContext ctx, GameFiltersList filtersList, int maxListings = 10)
+    {
+        if (filtersList == null || filtersList.FilterSets.Count == 0)""",
+    """    public IEnumerable<IGame> FindListingsV2(HttpContext ctx, GameFiltersList filtersList, int maxListings = 10)
+    {
+        if (ctx.Connection.RemoteIpAddress?.IsLoopback == true &&
+            ctx.Request.Headers.TryGetValue("X-SXB-Watcher", out var watcherHeader) &&
+            watcherHeader == "SXBWatcher-local-listing")
+        {
+            return _gameManager.Games
+                .Where(game => game.IsPublic &&
+                               game.GameState == GameStates.NotStarted &&
+                               game.PlayerCount < game.Options.MaxPlayers)
+                .Take(maxListings)
+                .ToArray();
+        }
+
+        if (filtersList == null || filtersList.FilterSets.Count == 0)""",
+    "SXBWatcher loopback public-lobby listing access")
