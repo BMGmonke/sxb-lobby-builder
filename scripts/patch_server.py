@@ -364,6 +364,162 @@ replace_once(
 
 
 
+
+# The upstream server intentionally leaves several system serializers
+# unimplemented. Calling them from ShipStatus.SerializeAsync throws at runtime,
+# preventing the ShipStatus SpawnFlag from reaching clients. Supply valid
+# initial-state payloads for the systems used by Polus (and the common Skeld
+# systems) so the map object can actually be transmitted.
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/SwitchSystem.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.Write(ExpectedSwitches);
+            writer.Write(ActualSwitches);
+            writer.Write(Value);
+        }""",
+    "SwitchSystem serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/MedScanSystem.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.WritePacked(UsersList.Count);
+            foreach (var playerId in UsersList)
+            {
+                writer.Write(playerId);
+            }
+        }""",
+    "MedScanSystem serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/DoorsSystemType.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.Write((byte)_timers.Count);
+            foreach (var timer in _timers)
+            {
+                writer.Write((byte)timer.Key);
+                writer.Write(timer.Value);
+            }
+
+            for (var i = 0; i < _doors.Count; i++)
+            {
+                writer.Write(_doors[i]);
+            }
+        }""",
+    "DoorsSystemType serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/HudOverrideSystemType.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.Write(IsActive);
+        }""",
+    "HudOverrideSystemType serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/SecurityCameraSystemType.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.Write(InUse);
+        }""",
+    "SecurityCameraSystemType serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/ReactorSystemType.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.Write(Countdown);
+            writer.WritePacked(UserConsolePairs.Count);
+            foreach (var pair in UserConsolePairs)
+            {
+                writer.Write(pair.Item1);
+                writer.Write(pair.Item2);
+            }
+        }""",
+    "ReactorSystemType serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/SabotageSystemType.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.Write(Timer);
+        }""",
+    "SabotageSystemType serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/LifeSuppSystemType.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            writer.Write(Countdown);
+            writer.WritePacked(CompletedConsoles.Count);
+            foreach (var console in CompletedConsoles)
+            {
+                writer.WritePacked(console);
+            }
+        }""",
+    "LifeSuppSystemType serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/Systems/ShipStatus/AutoDoorsSystemType.cs",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public void Serialize(IMessageWriter writer, bool initialState)
+        {
+            if (initialState)
+            {
+                for (var i = 0; i < _doors.Count; i++)
+                {
+                    writer.Write(_doors[i]);
+                }
+            }
+            else
+            {
+                var mask = _doors.Count >= 32 ? uint.MaxValue : (1u << _doors.Count) - 1u;
+                writer.WritePacked(mask);
+                for (var i = 0; i < _doors.Count && i < 32; i++)
+                {
+                    writer.Write(_doors[i]);
+                }
+            }
+        }""",
+    "AutoDoorsSystemType serializer")
+
+# The original loop checks the new dictionary's Count (always zero), not the
+# map data's door count, so no door state entries are ever initialized.
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/ShipStatus/InnerShipStatus.cs",
+    "            for (var i = 0; i < Doors.Count; i++)",
+    "            for (var i = 0; i < Data.Doors.Count; i++)",
+    "ShipStatus door initialization")
+
 # Late joiners must receive the fake host's PlayerControl too. The original
 # server sync only retransmits ServerOwned objects, while SXB PlayerControls
 # retain the fake client's owner ID. Sync the SXB root control (not its child
