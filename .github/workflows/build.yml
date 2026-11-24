@@ -459,6 +459,46 @@ jobs:
               p.write_text(s)
           print("SXB bot-only spawn timeout exemption applied.")
           PY
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/Impostor.Server/Net/Inner/Objects/InnerPlayerControl.cs')
+          s = p.read_text()
+          old = '''        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+          {
+              throw new NotImplementedException();
+          }'''
+          new = '''        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+          {
+              if (initialState) writer.Write(IsNew);
+              writer.Write(PlayerId);
+              return new ValueTask<bool>(true);
+          }'''
+          if old not in s: raise SystemExit('InnerPlayerControl serializer patch mismatch')
+          p.write_text(s.replace(old, new, 1))
+          p = Path('src/Impostor.Server/Net/Inner/Objects/Components/InnerPlayerPhysics.cs')
+          s = p.read_text()
+          old = '''        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+          {
+              throw new NotImplementedException();
+          }'''
+          new = '''        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+          {
+              return new ValueTask<bool>(false);
+          }'''
+          if old not in s: raise SystemExit('InnerPlayerPhysics serializer patch mismatch')
+          s = s.replace(old, new, 1)
+          old = '''        public override ValueTask DeserializeAsync(IClientPlayer sender, IClientPlayer? target, IMessageReader reader, bool initialState)
+          {
+              throw new NotImplementedException();
+          }'''
+          new = '''        public override ValueTask DeserializeAsync(IClientPlayer sender, IClientPlayer? target, IMessageReader reader, bool initialState)
+          {
+              return default;
+          }'''
+          if old not in s: raise SystemExit('InnerPlayerPhysics deserializer patch mismatch')
+          p.write_text(s.replace(old, new, 1))
+          print('Vanilla player component serializers applied.')
+          PY
           dotnet publish src/Impostor.Server/Impostor.Server.csproj -c Release -r linux-arm64 --self-contained false -p:UseAppHost=false -o ../server-publish
 
       - name: Upload patched ARM64 server
