@@ -499,6 +499,62 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           print('Vanilla player component serializers applied.')
           PY
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/Impostor.Server/Net/Inner/Objects/InnerPlayerControl.cs')
+          s = p.read_text()
+          anchor = '        public byte PlayerId { get; private set; }'
+          method = '''        public byte PlayerId { get; private set; }
+
+          internal void InitializeForServer(byte playerId)
+          {
+              IsNew = true;
+              PlayerId = playerId;
+          }'''
+          if anchor not in s: raise SystemExit('PlayerControl initializer anchor missing')
+          p.write_text(s.replace(anchor, method, 1))
+
+          p = Path('src/Impostor.Server/Net/State/Game.Outgoing.cs')
+          s = p.read_text()
+          old = '                writer.WritePacked(obj.NetId);\\n                writer.StartMessage(1);'
+          new = '                writer.WritePacked(component.NetId);\\n                writer.StartMessage(1);'
+          if old not in s: raise SystemExit('Spawn component NetId anchor missing')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('src/Impostor.Server/Net/State/Game.Data.cs')
+          s = p.read_text()
+          old = '            await SendObjectSpawnAsync(playerInfo);\\n        }\\n\\n        private async ValueTask DespawnPlayerInfoAsync'
+          new = '''            await SendObjectSpawnAsync(playerInfo);
+            if (sender.Client.Name is "SXBWatcher" or "BMGmonke?!" || Host?.Client.Name == "BMGmonke?!")
+            {
+                await SpawnSxbPlayerControlAsync(sender, playerInfo);
+            }
+        }
+
+        private async ValueTask SpawnSxbPlayerControlAsync(ClientPlayer sender, InnerPlayerInfo playerInfo)
+        {
+            var control = (InnerPlayerControl)ActivatorUtilities.CreateInstance(_serviceProvider, typeof(InnerPlayerControl), this);
+            control.InitializeForServer(playerInfo.PlayerId);
+            control.SpawnFlags = SpawnFlags.None;
+            foreach (var component in control.GetComponentsInChildren<InnerNetObject>())
+            {
+                component.NetId = _nextNetId++;
+                component.OwnerId = sender.Client.Id;
+                if (!AddNetObject(component))
+                {
+                    throw new InvalidOperationException($"Could not register SXB player component {component.GetType().Name}.");
+                }
+                await OnSpawnAsync(sender, component);
+            }
+            await SendObjectSpawnAsync(control);
+            _logger.LogInformation("Spawned server-side PlayerControl for {Name}, player ID {PlayerId}.", sender.Client.Name, playerInfo.PlayerId);
+        }
+
+        private async ValueTask DespawnPlayerInfoAsync'''
+          if old not in s: raise SystemExit('PlayerInfo spawn insertion point missing')
+          p.write_text(s.replace(old, new, 1))
+          print('SXB server-side PlayerControl spawning applied.')
+          PY
           dotnet publish src/Impostor.Server/Impostor.Server.csproj -c Release -r linux-arm64 --self-contained false -p:UseAppHost=false -o ../server-publish
 
       - name: Upload patched ARM64 server
