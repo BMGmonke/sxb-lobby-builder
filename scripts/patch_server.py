@@ -366,32 +366,6 @@ replace_once(
 
 
 
-# Server-created PlayerControls include a PlayerPhysics child component. The
-# upstream implementation throws for both serialization methods because it
-# normally forwards host-created spawn packets; SXB must emit the empty
-# component state explicitly when it constructs the PlayerControl itself.
-replace_once(
-    "src/Impostor.Server/Net/Inner/Objects/Components/InnerPlayerPhysics.cs",
-    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
-        {
-            throw new NotImplementedException();
-        }
-
-        public override ValueTask DeserializeAsync(IClientPlayer sender, IClientPlayer? target, IMessageReader reader, bool initialState)
-        {
-            throw new NotImplementedException();
-        }""",
-    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
-        {
-            return ValueTask.FromResult(true);
-        }
-
-        public override ValueTask DeserializeAsync(IClientPlayer sender, IClientPlayer? target, IMessageReader reader, bool initialState)
-        {
-            return default;
-        }""",
-    "PlayerPhysics empty-state serializer")
-
 # The upstream server intentionally leaves several system serializers
 # unimplemented. Calling them from ShipStatus.SerializeAsync throws at runtime,
 # preventing the ShipStatus SpawnFlag from reaching clients. Supply valid
