@@ -61,7 +61,7 @@ jobs:
                       using var serviceProvider = services.BuildServiceProvider();
                       var readerPool = serviceProvider.GetRequiredService<ObjectPool<MessageReader>>();
 
-                      using var handshake = MessageWriter.Get(MessageType.Reliable);
+                      var handshake = MessageWriter.Get(MessageType.Reliable);
                       handshake.Write(50666750);
                       handshake.Write("SXBHost");
                       handshake.Write((uint)0);
@@ -71,7 +71,7 @@ jobs:
                       handshake.Write(0);
                       handshake.Write((byte)0);
 
-                      using var createGame = MessageWriter.Get(MessageType.Reliable);
+                      var createGame = MessageWriter.Get(MessageType.Reliable);
                       Message00HostGameC2S.Serialize(createGame, new NormalGameOptions
                       {
                           MaxPlayers = 4,
@@ -120,21 +120,29 @@ jobs:
                               return default;
                           };
 
-                          await connection.ConnectAsync(handshake.ToByteArray(false));
-                          Log.Information("Placeholder host connected; requesting a lobby.");
-                          await connection.SendAsync(createGame);
+                          try
+                          {
+                              await connection.ConnectAsync(handshake.ToByteArray(false));
+                              Log.Information("Placeholder host connected; requesting a lobby.");
+                              await connection.SendAsync(createGame);
 
-                          Log.Information("Waiting up to 15 seconds for the lobby code.");
-                          var completed = await Task.WhenAny(lobbyCreated.Task, Task.Delay(TimeSpan.FromSeconds(15)));
-                          if (completed == lobbyCreated.Task)
-                          {
-                              Log.Information("Lobby is ready. Join code: {GameCode}", await lobbyCreated.Task);
-                              Log.Information("Keeping the lobby open for 60 seconds.");
-                              await Task.Delay(TimeSpan.FromSeconds(60));
+                              Log.Information("Waiting up to 15 seconds for the lobby code.");
+                              var completed = await Task.WhenAny(lobbyCreated.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+                              if (completed == lobbyCreated.Task)
+                              {
+                                  Log.Information("Lobby is ready. Join code: {GameCode}", await lobbyCreated.Task);
+                                  Log.Information("Keeping the lobby open for 60 seconds.");
+                                  await Task.Delay(TimeSpan.FromSeconds(60));
+                              }
+                              else
+                              {
+                                  Log.Error("No lobby code received within 15 seconds. Check the server log and protocol version.");
+                              }
                           }
-                          else
+                          finally
                           {
-                              Log.Error("No lobby code received within 15 seconds. Check the server log and protocol version.");
+                              handshake.Recycle();
+                              createGame.Recycle();
                           }
                       }
 
