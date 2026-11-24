@@ -38,8 +38,12 @@ jobs:
           using Impostor.Api.Net.Messages.C2S;
           using Impostor.Api.Net.Messages.S2C;
           using Impostor.Hazel;
+          using Impostor.Hazel;
           using Impostor.Hazel.Abstractions;
+          using Impostor.Hazel.Extensions;
           using Impostor.Hazel.Udp;
+          using Microsoft.Extensions.DependencyInjection;
+          using Microsoft.Extensions.ObjectPool;
           using Serilog;
 
           namespace Impostor.Client.App
@@ -67,8 +71,13 @@ jobs:
                           NumImpostors = 1,
                       }, CrossplayFlags.All, GameFilterOptions.CreateDefault());
 
+                      var services = new ServiceCollection();
+                      services.AddHazel();
+                      using var serviceProvider = services.BuildServiceProvider();
+                      var readerPool = serviceProvider.GetRequiredService<ObjectPool<MessageReader>>();
+
                       using (var connection = new UdpClientConnection(
-                          new IPEndPoint(IPAddress.Loopback, 22023), null))
+                          new IPEndPoint(IPAddress.Loopback, 22023), readerPool))
                       {
                           connection.DataReceived = e =>
                           {
