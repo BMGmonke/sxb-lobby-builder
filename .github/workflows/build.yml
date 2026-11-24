@@ -292,6 +292,7 @@ jobs:
                       Message00HostGameC2S.Serialize(createGame, new NormalGameOptions
                       {
                           MaxPlayers = 4,
+                          Map = MapTypes.Polus,
                           NumImpostors = 1,
                       }, CrossplayFlags.All, GameFilterOptions.CreateDefault());
 
