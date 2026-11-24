@@ -36,6 +36,7 @@ jobs:
           using System;
           using System.Net;
           using System.Threading.Tasks;
+          using Impostor.Api.Games;
           using Impostor.Api.Innersloth;
           using Impostor.Api.Innersloth.GameOptions;
           using Impostor.Api.Net.Messages;
@@ -53,6 +54,20 @@ jobs:
           {
               internal static class Program
               {
+                  private static MessageWriter CreateHandshake(string name)
+                  {
+                      var writer = MessageWriter.Get(MessageType.Reliable);
+                      writer.Write(50666750);
+                      writer.Write(name);
+                      writer.Write((uint)0);
+                      writer.Write((uint)Language.English);
+                      writer.Write((byte)QuickChatModes.FreeChatOrQuickChat);
+                      new PlatformSpecificData(Platforms.Android, "Android").Serialize(writer);
+                      writer.Write(0);
+                      writer.Write((byte)0);
+                      return writer;
+                  }
+
                   private static async Task Main(string[] args)
                   {
                       Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
@@ -62,16 +77,43 @@ jobs:
                       using var serviceProvider = services.BuildServiceProvider();
                       var readerPool = serviceProvider.GetRequiredService<ObjectPool<MessageReader>>();
 
-                      var handshake = MessageWriter.Get(MessageType.Reliable);
-                      handshake.Write(50666750);
-                      handshake.Write("BMGmonke?!");
-                      handshake.Write((uint)0);
-                      handshake.Write((uint)Language.English);
-                      handshake.Write((byte)QuickChatModes.FreeChatOrQuickChat);
-                      new PlatformSpecificData(Platforms.Android, "Android").Serialize(handshake);
-                      handshake.Write(0);
-                      handshake.Write((byte)0);
+                      var lobbyCreated = new TaskCompletionSource<GameCode>(TaskCreationOptions.RunContinuationsAsynchronously);
+                      var botJoinedAsHost = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
 
+                      using var creatorConnection = new UdpClientConnection(
+                          new IPEndPoint(IPAddress.Loopback, 22023), readerPool);
+
+                      creatorConnection.DataReceived = e =>
+                      {
+                          try
+                          {
+                              while (e.Message.Position < e.Message.Length)
+                              {
+                                  using var message = e.Message.ReadMessage();
+                                  if (message.Tag == MessageFlags.HostGame)
+                                  {
+                                      Message00HostGameS2C.Deserialize(message, out var code);
+                                      Log.Information("Lobby created. Code: {GameCode}", code.Code);
+                                      lobbyCreated.TrySetResult(code);
+                                  }
+                              }
+                          }
+                          catch (Exception ex)
+                          {
+                              Log.Error(ex, "Could not decode lobby-creation response.");
+                          }
+
+                          return default;
+                      };
+
+                      creatorConnection.Disconnected = e =>
+                      {
+                          Log.Warning("Lobby creator disconnected: {Reason}", e.Reason);
+                          lobbyCreated.TrySetException(new InvalidOperationException(e.Reason));
+                          return default;
+                      };
+
+                      var creatorHandshake = CreateHandshake("SXBCreate");
                       var createGame = MessageWriter.Get(MessageType.Reliable);
                       Message00HostGameC2S.Serialize(createGame, new NormalGameOptions
                       {
@@ -79,72 +121,99 @@ jobs:
                           NumImpostors = 1,
                       }, CrossplayFlags.All, GameFilterOptions.CreateDefault());
 
-                      var lobbyCreated = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                      using (var connection = new UdpClientConnection(
-                          new IPEndPoint(IPAddress.Loopback, 22023), readerPool))
+                      try
                       {
-                          connection.DataReceived = e =>
+                          await creatorConnection.ConnectAsync(creatorHandshake.ToByteArray(false));
+                          creatorHandshake.Recycle();
+                          Log.Information("Lobby creator connected; requesting a lobby.");
+                          await creatorConnection.SendAsync(createGame);
+                          createGame.Recycle();
+
+                          var created = await Task.WhenAny(lobbyCreated.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+                          if (created != lobbyCreated.Task)
+                          {
+                              throw new TimeoutException("No lobby code received within 15 seconds.");
+                          }
+
+                          var gameCode = await lobbyCreated.Task;
+
+                          // The lobby-creation socket is not itself a game player. Join with a
+                          // second client first so a real bot player receives HostId before humans.
+                          using var botConnection = new UdpClientConnection(
+                              new IPEndPoint(IPAddress.Loopback, 22023), readerPool);
+
+                          botConnection.DataReceived = e =>
                           {
                               try
                               {
                                   while (e.Message.Position < e.Message.Length)
                                   {
                                       using var message = e.Message.ReadMessage();
-
-                                      if (message.Tag == MessageFlags.HostGame)
+                                      if (message.Tag == MessageFlags.JoinedGame)
                                       {
-                                          Message00HostGameS2C.Deserialize(message, out var gameCode);
-                                          Log.Information("Lobby created! Join code: {GameCode}", gameCode.Code);
-                                          lobbyCreated.TrySetResult(gameCode.Code);
-                                      }
-                                      else
-                                      {
-                                          Log.Information("Received server message: {Tag}", MessageFlags.FlagToString(message.Tag));
+                                          var receivedCode = message.ReadInt32();
+                                          var playerId = message.ReadInt32();
+                                          var hostId = message.ReadInt32();
+                                          if (receivedCode == gameCode.Value && playerId == hostId)
+                                          {
+                                              Log.Information("BMGmonke?! joined first and is now lobby host (player {PlayerId}).", playerId);
+                                              botJoinedAsHost.TrySetResult(playerId);
+                                          }
                                       }
                                   }
                               }
                               catch (Exception ex)
                               {
-                                  // Keep a malformed/unexpected reply from crashing the Hazel receive loop.
-                                  Log.Error(ex, "Could not decode a server response; the connection will remain alive.");
+                                  Log.Error(ex, "Could not decode bot join response.");
                               }
 
                               return default;
                           };
 
-                          connection.Disconnected = e =>
+                          botConnection.Disconnected = e =>
                           {
-                              Log.Warning("Disconnected: {Reason}", e.Reason);
-                              lobbyCreated.TrySetException(new InvalidOperationException(
-                                  "Disconnected before the lobby code arrived: " + e.Reason));
+                              Log.Warning("BMGmonke?! disconnected: {Reason}", e.Reason);
+                              botJoinedAsHost.TrySetException(new InvalidOperationException(e.Reason));
                               return default;
                           };
 
+                          var botHandshake = CreateHandshake("BMGmonke?!");
                           try
                           {
-                              await connection.ConnectAsync(handshake.ToByteArray(false));
-                              Log.Information("BMGmonke?! bot host connected; requesting a lobby.");
-                              await connection.SendAsync(createGame);
-
-                              Log.Information("Waiting up to 15 seconds for the lobby code.");
-                              var completed = await Task.WhenAny(lobbyCreated.Task, Task.Delay(TimeSpan.FromSeconds(15)));
-                              if (completed == lobbyCreated.Task)
-                              {
-                                  Log.Information("BMGmonke?! created the lobby. Join code: {GameCode}", await lobbyCreated.Task);
-                                  Log.Information("Keeping the lobby open for 60 seconds.");
-                                  await Task.Delay(TimeSpan.FromSeconds(60));
-                              }
-                              else
-                              {
-                                  Log.Error("No lobby code received within 15 seconds. Check the server log and protocol version.");
-                              }
+                              await botConnection.ConnectAsync(botHandshake.ToByteArray(false));
                           }
                           finally
                           {
-                              handshake.Recycle();
-                              createGame.Recycle();
+                              botHandshake.Recycle();
                           }
+
+                          var joinGame = MessageWriter.Get(MessageType.Reliable);
+                          try
+                          {
+                              joinGame.StartMessage(MessageFlags.JoinGame);
+                              joinGame.Write(gameCode.Value);
+                              joinGame.Write(false);
+                              joinGame.EndMessage();
+                              await botConnection.SendAsync(joinGame);
+                          }
+                          finally
+                          {
+                              joinGame.Recycle();
+                          }
+
+                          var joined = await Task.WhenAny(botJoinedAsHost.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+                          if (joined != botJoinedAsHost.Task)
+                          {
+                              throw new TimeoutException("BMGmonke?! did not become the first player/host within 15 seconds.");
+                          }
+
+                          Log.Information("BMGmonke?! is holding the host slot. Lobby remains open for 60 seconds.");
+                          await Task.Delay(TimeSpan.FromSeconds(60));
+                      }
+                      finally
+                      {
+                          creatorHandshake.Recycle();
+                          createGame.Recycle();
                       }
 
                       Log.Information("60-second lobby window ended.");
