@@ -240,10 +240,19 @@ jobs:
                       {
                           Log.Information("SXBWatcher confirmed its PlayerControl was delivered by the server.");
                       }
+                      else if (spawnResult == disconnected.Task)
+                      {
+                          Log.Warning("SXBWatcher was disconnected before its PlayerControl spawn.");
+                          return false;
+                      }
                       else
                       {
-                          Log.Warning("SXBWatcher joined but did not receive its PlayerControl spawn within 10 seconds.");
-                          return false;
+                          // Public lobby servers may not send a PlayerControl
+                          // to a protocol-only client. Do not tear down the
+                          // joined player after an arbitrary 10-second timeout:
+                          // the server/host still needs this connection alive
+                          // to finish replicating the PlayerInfo and spawn.
+                          Log.Warning("SXBWatcher is still connected, but no PlayerControl spawn arrived within 10 seconds. Keeping the lobby session alive.");
                       }
                       var disconnectReason = await disconnected.Task;
                       Log.Warning("SXBWatcher connection ended after joining: {Reason}", disconnectReason);
