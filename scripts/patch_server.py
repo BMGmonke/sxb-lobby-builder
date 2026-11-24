@@ -282,25 +282,11 @@ if "EnsureSxbWorldObjectsAsync" not in s:
                 _logger.LogInformation("Published {Map} ship object for SXB lobby {Code}.", Options.Map, Code);
             }
 
-            if (!_allObjects.Values.OfType<InnerGameManager>().Any())
-            {
-                var manager = (InnerGameManager)ActivatorUtilities.CreateInstance(
-                    _serviceProvider, typeof(InnerNormalGameManager), this);
-                manager.SpawnFlags = SpawnFlags.None;
-                manager.NetId = _nextNetId++;
-                manager.OwnerId = ServerOwned;
-                if (!AddNetObject(manager))
-                {
-                    throw new InvalidOperationException("Could not register the SXB normal game manager.");
-                }
-                await OnSpawnAsync(sender, manager);
-                foreach (var existing in _players.Values.Where(
-                    player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
-                {
-                    await SendObjectSpawnAsync(manager, existing.Client.Id);
-                }
-                _logger.LogInformation("Published normal game manager for SXB lobby {Code}.", Code);
-            }
+            // Do not create InnerNormalGameManager while the client is entering
+            // the pre-game lobby. The real client creates/receives game-manager
+            // state as part of game start; publishing it during lobby scene load
+            // can advance the client into an uninitialized gameplay state.
+            _logger.LogInformation("Deferred normal game manager until game start for SXB lobby {Code}.", Code);
         }
 
 """
