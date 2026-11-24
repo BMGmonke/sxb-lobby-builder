@@ -99,10 +99,10 @@ jobs:
                                       Log.Information("New lobby detected: {Code} at {Ip}:{Port}. Attempting join.", code.Code, new IPAddress((long)ipNumber), port);
                                       if (await JoinLobby(code, new IPEndPoint(new IPAddress((long)ipNumber), port), readerPool))
                                       {
-                                          Log.Information("SXBWatcher joined lobby {Code}. Staying connected for inspection.", code.Code);
-                                          await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan);
+                                          Log.Information("SXBWatcher joined lobby {Code}. Monitoring the connection.", code.Code);
                                       }
-                                      Log.Warning("Join attempt for {Code} failed. Continuing scan.", code.Code);
+                                      seen.Remove(id);
+                                      Log.Warning("Join attempt for {Code} ended or failed. Lobby is eligible for another attempt.", code.Code);
                                   }
                               }
                           }
@@ -118,6 +118,7 @@ jobs:
                   {
                       using var connection = new UdpClientConnection(endpoint, readerPool);
                       var joined = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                      var disconnected = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var joinedPlayerId = -1;
                       connection.DataReceived = e =>
                       {
@@ -147,6 +148,7 @@ jobs:
                       {
                           Log.Warning("SXBWatcher disconnected: {Reason}", e.Reason);
                           joined.TrySetResult(false);
+                          disconnected.TrySetResult(e.Reason);
                           return default;
                       };
 
@@ -199,9 +201,10 @@ jobs:
                       }
                       finally { clientReady.Recycle(); }
 
-                      Log.Information("SXBWatcher completed the lobby scene handshake; waiting for player synchronization.");
-                      await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan);
-                      return true;
+                      Log.Information("SXBWatcher completed the lobby scene handshake; waiting for server synchronization.");
+                      var disconnectReason = await disconnected.Task;
+                      Log.Warning("SXBWatcher connection ended after joining: {Reason}", disconnectReason);
+                      return false;
                   }
 
                   private static async Task Main(string[] args)
