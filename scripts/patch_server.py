@@ -783,3 +783,22 @@ replace_once(
                         }""",
     "Reject non-host GameManager option updates")
 
+
+
+# Host-authoritative public lobbies do not let the server create ordinary
+# PlayerInfo objects. SXBWatcher is protocol-only and cannot create its own
+# Unity PlayerInfo, so explicitly allow the server to create it for this bot.
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """            // Hosts spawn PlayerInfo objects if they requested authority
+            if (IsHostAuthoritive)
+            {
+                return;
+            }""",
+    """            // Hosts spawn PlayerInfo objects if they requested authority.
+            // SXBWatcher is protocol-only and cannot create its own Unity object.
+            if (IsHostAuthoritive && sender.Client.Name is not ("SXBWatcher" or "BMGmonke?!"))
+            {
+                return;
+            }""",
+    "SXB PlayerInfo in host-authoritative lobbies")
