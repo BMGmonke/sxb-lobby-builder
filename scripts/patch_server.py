@@ -109,22 +109,19 @@ old = """            await SendObjectSpawnAsync(playerInfo);
         }
 
         private async ValueTask DespawnPlayerInfoAsync"""
-new = """            var sxbMode = Host?.Client.Name == "BMGmonke?!" || sender.Client.Name is "SXBWatcher" or "BMGmonke?!";
+new = """            // PlayerInfo is the lobby roster entry. Broadcast it to every
+            // connected lobby member, including clients whose Scene has not
+            // reached OnlineGame yet; filtering by Scene can make a joined bot
+            // invisible to the host during lobby synchronization.
+            await SendObjectSpawnAsync(playerInfo);
             if (sxbMode)
             {
-                // Only deliver immediately to the joining player and clients
-                // already in OnlineGame. Lobby clients receive this PlayerInfo
-                // later through SyncServerObjectsAsync, avoiding duplicate NetIds.
-                await SendObjectSpawnAsync(playerInfo, sender.Client.Id);
-                foreach (var existing in _players.Values.Where(
-                    player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
-                {
-                    await SendObjectSpawnAsync(playerInfo, existing.Client.Id);
-                }
-            }
-            else
-            {
-                await SendObjectSpawnAsync(playerInfo);
+                _logger.LogInformation(
+                    "Published server-side PlayerInfo for {Name} (client {ClientId}, player {PlayerId}) to all lobby members; host-authoritative={HostAuthoritative}.",
+                    sender.Client.Name,
+                    sender.Client.Id,
+                    playerInfo.PlayerId,
+                    IsHostAuthoritive);
             }
 
             if (sender.Client.Name is "SXBWatcher" or "BMGmonke?!" || Host?.Client.Name == "BMGmonke?!")
