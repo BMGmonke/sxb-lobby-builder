@@ -516,14 +516,14 @@ jobs:
 
           p = Path('src/Impostor.Server/Net/State/Game.Outgoing.cs')
           s = p.read_text()
-          old = '                writer.WritePacked(obj.NetId);\\n                writer.StartMessage(1);'
-          new = '                writer.WritePacked(component.NetId);\\n                writer.StartMessage(1);'
+          old = '                writer.WritePacked(obj.NetId);\n                writer.StartMessage(1);'
+          new = '                writer.WritePacked(component.NetId);\n                writer.StartMessage(1);'
           if old not in s: raise SystemExit('Spawn component NetId anchor missing')
           p.write_text(s.replace(old, new, 1))
 
           p = Path('src/Impostor.Server/Net/State/Game.Data.cs')
           s = p.read_text()
-          old = '            await SendObjectSpawnAsync(playerInfo);\\n        }\\n\\n        private async ValueTask DespawnPlayerInfoAsync'
+          old = '            await SendObjectSpawnAsync(playerInfo);\n        }\n\n        private async ValueTask DespawnPlayerInfoAsync'
           new = '''            await SendObjectSpawnAsync(playerInfo);
             if (sender.Client.Name is "SXBWatcher" or "BMGmonke?!" || Host?.Client.Name == "BMGmonke?!")
             {
