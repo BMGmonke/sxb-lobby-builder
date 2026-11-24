@@ -544,6 +544,8 @@ jobs:
           grep -q "SXBWatcher is scanning for public Normal lobbies" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "New lobby detected:" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "SXBWatcher received JoinedGame:" "$RUNNER_TEMP/sxb-watcher-smoke.log"
+          grep -q "SXBWatcher received its PlayerControl spawn" "$RUNNER_TEMP/sxb-watcher-smoke.log"
+          grep -q "SXBWatcher confirmed its PlayerControl was delivered" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "Published lobby behaviour" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Published Polus ship object" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Spawned server-side PlayerControl" "$RUNNER_TEMP/sxb-server-smoke.log"
