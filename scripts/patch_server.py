@@ -109,7 +109,24 @@ old = """            await SendObjectSpawnAsync(playerInfo);
         }
 
         private async ValueTask DespawnPlayerInfoAsync"""
-new = """            await SendObjectSpawnAsync(playerInfo);
+new = """            var sxbMode = Host?.Client.Name == "BMGmonke?!" || sender.Client.Name is "SXBWatcher" or "BMGmonke?!";
+            if (sxbMode)
+            {
+                // Only deliver immediately to the joining player and clients
+                // already in OnlineGame. Lobby clients receive this PlayerInfo
+                // later through SyncServerObjectsAsync, avoiding duplicate NetIds.
+                await SendObjectSpawnAsync(playerInfo, sender.Client.Id);
+                foreach (var existing in _players.Values.Where(
+                    player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
+                {
+                    await SendObjectSpawnAsync(playerInfo, existing.Client.Id);
+                }
+            }
+            else
+            {
+                await SendObjectSpawnAsync(playerInfo);
+            }
+
             if (sender.Client.Name is "SXBWatcher" or "BMGmonke?!" || Host?.Client.Name == "BMGmonke?!")
             {
                 await SpawnSxbPlayerControlAsync(sender, playerInfo);
