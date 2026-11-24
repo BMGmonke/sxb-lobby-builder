@@ -308,6 +308,41 @@ if "EnsureSxbWorldObjectsAsync" not in s:
 
 print("SXB map/player initialization patch complete")
 
+# The watcher starts with its own local cosmetic selection and may send a
+# SetHatStr RPC after joining. Keep the server-authoritative top hat instead
+# of allowing that client preference to overwrite the forced outfit.
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/InnerPlayerControl.cs",
+    """            else
+            {
+                PlayerInfo.CurrentOutfit.HatId = hat;
+                PlayerInfo.CurrentOutfit.HatSequenceId = nextRpcSequenceId;
+            }
+
+            return true;
+        }
+
+        private async ValueTask<bool> HandleSetSkin""",
+    """            else if (sender.Client.Name == "SXBWatcher")
+            {
+                // The watcher is locked to the SXB uniform. Ignore its local
+                // cosmetic loadout RPC so the PlayerInfo top hat stays intact.
+                PlayerInfo.CurrentOutfit.HatId = "hat_TopHat";
+                return false;
+            }
+            else
+            {
+                PlayerInfo.CurrentOutfit.HatId = hat;
+                PlayerInfo.CurrentOutfit.HatSequenceId = nextRpcSequenceId;
+            }
+
+            return true;
+        }
+
+        private async ValueTask<bool> HandleSetSkin""",
+    "SXBWatcher forced top hat RPC")
+
+
 # Serialize the actual Skeld systems and normal-game options. Empty spawn
 # payloads leave clients with a ShipStatus shell but no initialized systems.
 replace_once(
