@@ -249,8 +249,8 @@ jobs:
                               clientReady.Recycle();
                           }
 
-                          Log.Information("Waiting for host PlayerControl spawn; lobby is not ready for humans until this completes.");
-                          await Task.Delay(TimeSpan.FromSeconds(60));
+                          Log.Information("BMGmonke?! is staying connected. The lobby remains open for humans until the host process is stopped.");
+                          await Task.Delay(Timeout.InfiniteTimeSpan);
                       }
                       finally
                       {
@@ -258,7 +258,7 @@ jobs:
                           createGame.Recycle();
                       }
 
-                      Log.Information("60-second lobby window ended.");
+
                   }
               }
           }
