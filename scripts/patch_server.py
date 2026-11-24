@@ -202,9 +202,12 @@ replace_once(
             // by the server before PlayerInfo is spawned, bypassing client color
             // availability checks; the server remains authoritative.
             var isSxbWatcher = sender.Client.Name == "SXBWatcher";
-            playerInfo.CurrentOutfit.Color = isSxbWatcher
-                ? Impostor.Api.Innersloth.Customization.ColorType.Blue
-                : Impostor.Api.Innersloth.Customization.ColorType.Cyan;
+            if (isSxbWatcher)
+            {
+                // Lock only the watcher. Leave real clients' colors untouched
+                // until their own SetColor RPC is processed.
+                playerInfo.CurrentOutfit.Color = Impostor.Api.Innersloth.Customization.ColorType.Blue;
+            }
             playerInfo.CurrentOutfit.HatId = isSxbWatcher ? "hat_TopHat" : "hat_NoHat";
             playerInfo.CurrentOutfit.PetId = "pet_EmptyPet";
             playerInfo.CurrentOutfit.SkinId = "skin_None";
@@ -263,10 +266,14 @@ if "EnsureSxbWorldObjectsAsync" not in s:
                 return;
             }
 
+            // Ensure the Dropship lobby's map is selected before choosing
+            // the ShipStatus prefab. LogicOptions may not have deserialized yet
+            // when the first SXB client enters OnlineGame.
+            Options.Map = MapTypes.Polus;
+
             if (!_allObjects.Values.OfType<InnerShipStatus>().Any())
             {
-                // Match the network ShipStatus prefab to the map advertised
-                // in the lobby's GameOptions. Polus is the Dropship map.
+                // Match the network ShipStatus prefab to the now-authoritative map.
                 var shipType = Options.Map switch
                 {
                     MapTypes.Skeld => typeof(InnerSkeldShipStatus),
