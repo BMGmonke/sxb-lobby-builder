@@ -28,6 +28,10 @@ jobs:
         working-directory: impostor
         shell: bash
         run: |
+          # BuildServiceProvider is supplied by this package; the app project
+          # intentionally keeps the dependency local to the generated client.
+          sed -i '/<PackageReference Include="Serilog.Sinks.Console"/a\    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />' src/Impostor.Client.App/Impostor.Client.App.csproj
+
           cat > src/Impostor.Client.App/Program.cs <<'CS'
           using System;
           using System.Net;
@@ -38,8 +42,6 @@ jobs:
           using Impostor.Api.Net.Messages.C2S;
           using Impostor.Api.Net.Messages.S2C;
           using Impostor.Hazel;
-          using Impostor.Hazel;
-          using Impostor.Hazel.Abstractions;
           using Impostor.Hazel.Extensions;
           using Impostor.Hazel.Udp;
           using Microsoft.Extensions.DependencyInjection;
@@ -54,7 +56,12 @@ jobs:
                   {
                       Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
 
-                      var handshake = MessageWriter.Get(MessageType.Reliable);
+                      var services = new ServiceCollection();
+                      services.AddHazel();
+                      using var serviceProvider = services.BuildServiceProvider();
+                      var readerPool = serviceProvider.GetRequiredService<ObjectPool<MessageReader>>();
+
+                      using var handshake = MessageWriter.Get(MessageType.Reliable);
                       handshake.Write(50666750);
                       handshake.Write("SXBHost");
                       handshake.Write((uint)0);
@@ -64,31 +71,31 @@ jobs:
                       handshake.Write(0);
                       handshake.Write((byte)0);
 
-                      var createGame = MessageWriter.Get(MessageType.Reliable);
+                      using var createGame = MessageWriter.Get(MessageType.Reliable);
                       Message00HostGameC2S.Serialize(createGame, new NormalGameOptions
                       {
                           MaxPlayers = 4,
                           NumImpostors = 1,
                       }, CrossplayFlags.All, GameFilterOptions.CreateDefault());
 
-                      var services = new ServiceCollection();
-                      services.AddHazel();
-                      using var serviceProvider = services.BuildServiceProvider();
-                      var readerPool = serviceProvider.GetRequiredService<ObjectPool<MessageReader>>();
+                      var lobbyCreated = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
                       using (var connection = new UdpClientConnection(
                           new IPEndPoint(IPAddress.Loopback, 22023), readerPool))
                       {
                           connection.DataReceived = e =>
                           {
-                              while (e.Message.Position < e.Message.Length)
+                              try
                               {
-                                  using (var message = e.Message.ReadMessage())
+                                  while (e.Message.Position < e.Message.Length)
                                   {
+                                      using var message = e.Message.ReadMessage();
+
                                       if (message.Tag == MessageFlags.HostGame)
                                       {
                                           Message00HostGameS2C.Deserialize(message, out var gameCode);
                                           Log.Information("Lobby created! Join code: {GameCode}", gameCode.Code);
+                                          lobbyCreated.TrySetResult(gameCode.Code);
                                       }
                                       else
                                       {
@@ -96,23 +103,39 @@ jobs:
                                       }
                                   }
                               }
+                              catch (Exception ex)
+                              {
+                                  // Keep a malformed/unexpected reply from crashing the Hazel receive loop.
+                                  Log.Error(ex, "Could not decode a server response; the connection will remain alive.");
+                              }
 
                               return default;
                           };
+
                           connection.Disconnected = e =>
                           {
-                              Log.Information("Disconnected: {Reason}", e.Reason);
+                              Log.Warning("Disconnected: {Reason}", e.Reason);
+                              lobbyCreated.TrySetException(new InvalidOperationException(
+                                  "Disconnected before the lobby code arrived: " + e.Reason));
                               return default;
                           };
 
                           await connection.ConnectAsync(handshake.ToByteArray(false));
                           Log.Information("Placeholder host connected; requesting a lobby.");
                           await connection.SendAsync(createGame);
-                          handshake.Recycle();
-                          createGame.Recycle();
 
-                          Log.Information("Keeping the lobby open for 60 seconds.");
-                          await Task.Delay(TimeSpan.FromSeconds(60));
+                          Log.Information("Waiting up to 15 seconds for the lobby code.");
+                          var completed = await Task.WhenAny(lobbyCreated.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+                          if (completed == lobbyCreated.Task)
+                          {
+                              Log.Information("Lobby is ready. Join code: {GameCode}", await lobbyCreated.Task);
+                              Log.Information("Keeping the lobby open for 60 seconds.");
+                              await Task.Delay(TimeSpan.FromSeconds(60));
+                          }
+                          else
+                          {
+                              Log.Error("No lobby code received within 15 seconds. Check the server log and protocol version.");
+                          }
                       }
 
                       Log.Information("60-second lobby window ended.");
