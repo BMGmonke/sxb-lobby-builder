@@ -372,6 +372,23 @@ jobs:
                               clientReady.Recycle();
                           }
 
+                          // Publish the lobby so normal clients and SXBWatcher can discover it.
+                          var makePublic = MessageWriter.Get(MessageType.Reliable);
+                          try
+                          {
+                              makePublic.StartMessage(MessageFlags.AlterGame);
+                              makePublic.Write(gameCode.Value);
+                              makePublic.Write((byte)AlterGameTags.ChangePrivacy);
+                              makePublic.Write(true);
+                              makePublic.EndMessage();
+                              await creatorConnection.SendAsync(makePublic);
+                              Log.Information("BMGmonke?! made lobby {GameCode} public.", gameCode.Code);
+                          }
+                          finally
+                          {
+                              makePublic.Recycle();
+                          }
+
                           Log.Information("BMGmonke?! is staying connected. The lobby remains open for humans until the host process is stopped.");
                           await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan);
                       }
@@ -417,23 +434,80 @@ jobs:
           dotnet publish src/Impostor.Client.App/Impostor.Client.App.csproj -c Release -r linux-x64 --self-contained false -p:UseAppHost=false -o ../host-smoke
 
           cd ../server-smoke
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("config.json")
+          config = json.loads(p.read_text())
+          config["Server"]["PublicIp"] = "127.0.0.1"
+          config["Server"]["PublicPort"] = 22023
+          config["Server"]["ListenIp"] = "127.0.0.1"
+          config["Server"]["ListenPort"] = 22023
+          config["HttpServer"]["ListenIp"] = "127.0.0.1"
+          config["HttpServer"]["ListenPort"] = 22023
+          p.write_text(json.dumps(config))
+          PY
           dotnet Impostor.Server.dll > "$RUNNER_TEMP/sxb-server-smoke.log" 2>&1 &
           SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-          sleep 5
+          HOST_PID=""
+          WATCHER_PID=""
+          cleanup_smoke() {
+            [ -z "$WATCHER_PID" ] || kill "$WATCHER_PID" 2>/dev/null || true
+            [ -z "$HOST_PID" ] || kill "$HOST_PID" 2>/dev/null || true
+            kill "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup_smoke EXIT
+
+          # Wait for the local HTTP listing endpoint before launching either client.
+          READY=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:22023/ >/dev/null 2>&1; then READY=1; break; fi
+            sleep 1
+          done
+          [ "$READY" = 1 ] || { echo "Smoke server did not become ready."; tail -n 100 "$RUNNER_TEMP/sxb-server-smoke.log"; exit 1; }
 
           cd ../host-smoke
+          dotnet Impostor.Client.App.dll > "$RUNNER_TEMP/sxb-host-smoke.log" 2>&1 &
+          HOST_PID=$!
+
+          # Wait until the host has spawned and advertised its public lobby.
+          PUBLIC=0
+          for i in $(seq 1 30); do
+            if grep -q "made lobby .* public" "$RUNNER_TEMP/sxb-host-smoke.log"; then PUBLIC=1; break; fi
+            if ! kill -0 "$HOST_PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$PUBLIC" != 1 ]; then
+            echo "Host did not publish its lobby."
+            cat "$RUNNER_TEMP/sxb-host-smoke.log"
+            tail -n 120 "$RUNNER_TEMP/sxb-server-smoke.log"
+            exit 1
+          fi
+
+          # Exercise option 5 against the live public lobby and verify the real join handshake.
           set +e
-          timeout 25s dotnet Impostor.Client.App.dll > "$RUNNER_TEMP/sxb-host-smoke.log" 2>&1
+          timeout 20s dotnet Impostor.Client.App.dll --watch > "$RUNNER_TEMP/sxb-watcher-smoke.log" 2>&1
+          WATCH_STATUS=$?
           set -e
+          if [ "$WATCH_STATUS" -ne 124 ] && [ "$WATCH_STATUS" -ne 0 ]; then
+            echo "Watcher exited unexpectedly with status $WATCH_STATUS."
+            cat "$RUNNER_TEMP/sxb-watcher-smoke.log"
+            exit 1
+          fi
 
           echo "===== SXB host smoke-test log ====="
           cat "$RUNNER_TEMP/sxb-host-smoke.log"
+          echo "===== SXB watcher smoke-test log ====="
+          cat "$RUNNER_TEMP/sxb-watcher-smoke.log"
           echo "===== Impostor server smoke-test log ====="
           tail -n 160 "$RUNNER_TEMP/sxb-server-smoke.log"
 
           grep -q "Lobby created. Code:" "$RUNNER_TEMP/sxb-host-smoke.log"
           grep -q "BMGmonke?! joined as the actual lobby host" "$RUNNER_TEMP/sxb-host-smoke.log"
+          grep -q "made lobby .* public" "$RUNNER_TEMP/sxb-host-smoke.log"
+          grep -q "SXBWatcher is scanning for public Normal lobbies" "$RUNNER_TEMP/sxb-watcher-smoke.log"
+          grep -q "New lobby detected:" "$RUNNER_TEMP/sxb-watcher-smoke.log"
+          grep -q "SXBWatcher received JoinedGame:" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "Published lobby behaviour" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Published Polus ship object" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Spawned server-side PlayerControl" "$RUNNER_TEMP/sxb-server-smoke.log"
@@ -441,7 +515,7 @@ jobs:
             echo "Smoke test failed: an unimplemented serializer crashed object spawning."
             exit 1
           fi
-          echo "SXB Dropship lobby, Polus ShipStatus and PlayerControl spawn smoke test passed."
+          echo "SXB host spawn and option-5 public-lobby discovery/join smoke tests passed."
 
       - name: Upload client artifact
         uses: actions/upload-artifact@v4
