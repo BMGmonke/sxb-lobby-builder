@@ -79,7 +79,7 @@ jobs:
 
 
                   private static readonly string FilterJson =
-                      "{\"FilterSets\":[{\"GameMode\":1,\"Filters\":[{\"OptionType\":\"languages\",\"Key\":\"Language\",\"SubFilterString\":\"{\\\"FilterType\\\":\\\"languages\\\",\\\"AcceptedValues\\\":256}\"},{\"OptionType\":\"chat\",\"Key\":\"Chat\",\"SubFilterString\":\"{\\\"FilterType\\\":\\\"chat\\\",\\\"AcceptedValues\\\":3}\"}]}]}";
+                      "{\"FilterSets\":[{\"GameMode\":1,\"Filters\":[{\"OptionType\":\"languages\",\"Key\":\"Language\",\"SubFilterString\":\"{\\\"FilterType\\\":\\\"languages\\\",\\\"AcceptedValues\\\":4294967295}\"},{\"OptionType\":\"chat\",\"Key\":\"Chat\",\"SubFilterString\":\"{\\\"FilterType\\\":\\\"chat\\\",\\\"AcceptedValues\\\":255}\"}]}]}";
 
                   private static async Task WatchForLobby(ObjectPool<MessageReader> readerPool)
                   {
