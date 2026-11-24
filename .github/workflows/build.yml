@@ -276,6 +276,8 @@ jobs:
 
                       var lobbyCreated = new TaskCompletionSource<GameCode>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var botJoinedAsHost = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                      var watcherControlSeen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                      var hostPlayerId = -1;
 
                       using var creatorConnection = new UdpClientConnection(
                           new IPEndPoint(IPAddress.Loopback, 22023), readerPool);
@@ -302,8 +304,34 @@ jobs:
                                           receivedCode == lobbyCreated.Task.Result.Value &&
                                           playerId == hostId)
                                       {
+                                          hostPlayerId = playerId;
                                           Log.Information("BMGmonke?! joined as the actual lobby host (client {PlayerId}).", playerId);
                                           botJoinedAsHost.TrySetResult(playerId);
+                                      }
+                                  }
+                                  else if (message.Tag == MessageFlags.GameData || message.Tag == MessageFlags.GameDataTo)
+                                  {
+                                      var receivedCode = message.ReadInt32();
+                                      if (message.Tag == MessageFlags.GameDataTo) message.ReadPackedInt32();
+                                      if (receivedCode != lobbyCreated.Task.Result.Value) continue;
+                                      while (message.Position < message.Length)
+                                      {
+                                          using var gameData = message.ReadMessage();
+                                          if (gameData.Tag != 4) continue; // GameDataTag.SpawnFlag
+                                          var objectType = gameData.ReadPackedUInt32();
+                                          var ownerId = gameData.ReadPackedInt32();
+                                          gameData.ReadByte();
+                                          var componentCount = gameData.ReadPackedInt32();
+                                          for (var component = 0; component < componentCount; component++)
+                                          {
+                                              gameData.ReadPackedUInt32();
+                                              using var payload = gameData.ReadMessage();
+                                          }
+                                          if (objectType == 4 && ownerId != hostPlayerId)
+                                          {
+                                              Log.Information("BMGmonke?! received another player's PlayerControl spawn (owner {OwnerId}, {ComponentCount} components).", ownerId, componentCount);
+                                              watcherControlSeen.TrySetResult(true);
+                                          }
                                       }
                                   }
                               }
@@ -372,7 +400,7 @@ jobs:
                               throw new TimeoutException("BMGmonke?! did not receive JoinedGame as lobby host within 15 seconds.");
                           }
 
-                          var hostPlayerId = await botJoinedAsHost.Task;
+                          hostPlayerId = await botJoinedAsHost.Task;
                           var sceneChange = MessageWriter.Get(MessageType.Reliable);
                           try
                           {
@@ -546,6 +574,7 @@ jobs:
           grep -q "SXBWatcher received JoinedGame:" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "SXBWatcher received its PlayerControl spawn" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "SXBWatcher confirmed its PlayerControl was delivered" "$RUNNER_TEMP/sxb-watcher-smoke.log"
+          grep -q "BMGmonke?! received another player's PlayerControl spawn" "$RUNNER_TEMP/sxb-host-smoke.log"
           grep -q "Published lobby behaviour" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Published Polus ship object" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Spawned server-side PlayerControl" "$RUNNER_TEMP/sxb-server-smoke.log"
