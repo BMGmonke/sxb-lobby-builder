@@ -142,7 +142,15 @@ new = """            await SendObjectSpawnAsync(playerInfo);
                     shipStatus.GetSpawnLocation(control, PlayerCount, true));
             }
 
-            await SendObjectSpawnAsync(control);
+            // Deliver immediately only to clients already in OnlineGame.
+            // Lobby clients receive this object later through SyncServerObjectsAsync.
+            await SendObjectSpawnAsync(control, sender.Client.Id);
+            foreach (var existing in _players.Values.Where(
+                player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
+            {
+                await SendObjectSpawnAsync(control, existing.Client.Id);
+            }
+
             _logger.LogInformation("Spawned server-side PlayerControl for {Name}, player ID {PlayerId} at {Position}.", sender.Client.Name, playerInfo.PlayerId, control.NetworkTransform.Position);
         }
 
@@ -249,8 +257,12 @@ if "EnsureSxbWorldObjectsAsync" not in s:
                     throw new InvalidOperationException("Could not register the SXB Skeld ship object.");
                 }
                 await OnSpawnAsync(sender, ship);
-                await SendObjectSpawnAsync(ship);
-                _logger.LogInformation("Published Skeld ship object for SXB lobby {Code}.", Code);
+                foreach (var existing in _players.Values.Where(
+                    player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
+                {
+                    await SendObjectSpawnAsync(ship, existing.Client.Id);
+                }
+                _logger.LogInformation("Published {Map} ship object for SXB lobby {Code}.", Options.Map, Code);
             }
 
             if (!_allObjects.Values.OfType<InnerGameManager>().Any())
@@ -265,7 +277,11 @@ if "EnsureSxbWorldObjectsAsync" not in s:
                     throw new InvalidOperationException("Could not register the SXB normal game manager.");
                 }
                 await OnSpawnAsync(sender, manager);
-                await SendObjectSpawnAsync(manager);
+                foreach (var existing in _players.Values.Where(
+                    player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
+                {
+                    await SendObjectSpawnAsync(manager, existing.Client.Id);
+                }
                 _logger.LogInformation("Published normal game manager for SXB lobby {Code}.", Code);
             }
         }
@@ -355,8 +371,9 @@ replace_once(
                     obj.OwnerId == ServerOwned ||
                     (obj is InnerPlayerControl control &&
                      control.OwnerId != sender.Client.Id &&
-                     TryGetPlayer(control.OwnerId, out var owner) &&
-                     owner.Client.Name is "BMGmonke?!" or "SXBWatcher"))
+                     (Host?.Client.Name == "BMGmonke?!" ||
+                      (TryGetPlayer(control.OwnerId, out var owner) &&
+                       owner.Client.Name is "BMGmonke?!" or "SXBWatcher"))))
                 .OrderBy(obj => obj switch
                 {
                     InnerShipStatus => 0,
