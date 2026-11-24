@@ -741,3 +741,27 @@ replace_once(
                     InnerPlayerControl => 4,
                     _ => 5,""",
     "SXB lobby object synchronization order")
+
+# GameManager's LogicOptions deserializer writes directly into Game.Options.
+# GameData DataFlag packets are not inherently host-only, so a joining watcher
+# can otherwise overwrite the host's selected map with its local default (Skeld).
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """                        if (_allObjects.TryGetValue(netId, out var obj))
+                        {
+                            await obj.DeserializeAsync(sender, target, reader, false);
+                        }""",
+    """                        if (_allObjects.TryGetValue(netId, out var obj))
+                        {
+                            if (obj is InnerGameManager && !sender.IsHost)
+                            {
+                                _logger.LogWarning(
+                                    "{PlayerName} ({ClientId}) attempted to update host-authoritative game options; ignoring.",
+                                    sender.Client.Name,
+                                    sender.Client.Id);
+                                break;
+                            }
+
+                            await obj.DeserializeAsync(sender, target, reader, false);
+                        }""",
+    "Reject non-host GameManager option updates")
