@@ -1,0 +1,108 @@
+name: Build SXB lobby host
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Impostor
+        uses: actions/checkout@v4
+        with:
+          repository: Impostor/Impostor
+          ref: v1.10.10
+          path: impostor
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install SXB placeholder host client
+        working-directory: impostor
+        shell: bash
+        run: |
+          cat > src/Impostor.Client.App/Program.cs <<'CS'
+          using System;
+          using System.Net;
+          using System.Threading.Tasks;
+          using Impostor.Api.Innersloth;
+          using Impostor.Api.Innersloth.GameOptions;
+          using Impostor.Api.Net.Messages.C2S;
+          using Impostor.Hazel;
+          using Impostor.Hazel.Abstractions;
+          using Impostor.Hazel.Udp;
+          using Serilog;
+
+          namespace Impostor.Client.App
+          {
+              internal static class Program
+              {
+                  private static async Task Main(string[] args)
+                  {
+                      Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
+
+                      var handshake = MessageWriter.Get(MessageType.Reliable);
+                      handshake.Write(50666750);
+                      handshake.Write("SXB 60s Lobby Host");
+                      handshake.Write((uint)0);
+                      handshake.Write((uint)Language.English);
+                      handshake.Write((byte)QuickChatModes.FreeChatOrQuickChat);
+                      new PlatformSpecificData(Platforms.Android, "Android").Serialize(handshake);
+                      handshake.Write(0);
+                      handshake.Write((byte)0);
+
+                      var createGame = MessageWriter.Get(MessageType.Reliable);
+                      Message00HostGameC2S.Serialize(createGame, new LegacyGameOptionsData
+                      {
+                          MaxPlayers = 4,
+                          NumImpostors = 1,
+                      }, CrossplayFlags.All, GameFilterOptions.CreateDefault());
+
+                      using (var connection = new UdpClientConnection(
+                          new IPEndPoint(IPAddress.Loopback, 22023), null))
+                      {
+                          connection.DataReceived = e =>
+                          {
+                              Log.Information("Server response received.");
+                              return default;
+                          };
+                          connection.Disconnected = e =>
+                          {
+                              Log.Information("Disconnected: {Reason}", e.Reason);
+                              return default;
+                          };
+
+                          await connection.ConnectAsync(handshake.ToByteArray(false));
+                          Log.Information("Placeholder host connected; requesting a lobby.");
+                          await connection.SendAsync(createGame);
+                          handshake.Recycle();
+                          createGame.Recycle();
+
+                          Log.Information("Keeping the lobby open for 60 seconds.");
+                          await Task.Delay(TimeSpan.FromSeconds(60));
+                      }
+
+                      Log.Information("60-second lobby window ended.");
+                  }
+              }
+          }
+          CS
+
+      - name: Build ARM64 client
+        working-directory: impostor
+        run: dotnet publish src/Impostor.Client.App/Impostor.Client.App.csproj -c Release -r linux-arm64 --self-contained false -p:UseAppHost=false -o ../publish
+
+      - name: Upload client artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sxb-lobby-host-linux-arm64
+          path: publish/
+          if-no-files-found: error
+          retention-days: 7
