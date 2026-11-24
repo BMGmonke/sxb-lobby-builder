@@ -421,33 +421,38 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           p = Path("src/Impostor.Server/Net/State/ClientPlayer.cs")
           s = p.read_text()
-          if "Retaining SXB bot" not in s:
-              pattern = re.compile(
-                  r"(?P<indent>^[ \t]*)if \(Character == null\)\s*\{\s*"
-                  r"_logger\.LogInformation\(\"\{0\} - Player \{1\} spawn timed out, kicking\.\"[^\n]*\n"
-                  r"[^\n]*await KickAsync\(\);\s*\}",
-                  re.M
-              )
-              match = pattern.search(s)
-              if not match:
-                  raise SystemExit("Could not locate spawn-timeout kick block in ClientPlayer.cs.")
-              patched = '''                if (Character == null)
-                {
-                    if (Client.Name is "SXBWatcher" or "BMGmonke?!")
-                    {
-                        _logger.LogInformation("{0} - Retaining SXB bot {1} ({2}) without Unity PlayerControl.", Game.Code, Client.Name, Client.Id);
-                    }
-                    else
-                    {
-                        _logger.LogInformation("{0} - Player {1} spawn timed out, kicking.", Game.Code, Client.Id);
-                        await KickAsync();
-                    }
-                }'''
-              s = s[:match.start()] + patched + s[match.end():]
+          marker = "Retaining SXB bot"
+          if marker not in s:
+              start = s.index("if (Character == null)", s.index("private async void RunSpawnTimeout"))
+              brace = s.index("{", start)
+              depth = 0
+              end = None
+              for i in range(brace, len(s)):
+                  if s[i] == "{":
+                      depth += 1
+                  elif s[i] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = i + 1
+                          break
+              if end is None:
+                  raise SystemExit("Unbalanced RunSpawnTimeout block.")
+              replacement = """if (Character == null)
+                  {
+                      if (Client.Name is "SXBWatcher" or "BMGmonke?!")
+                      {
+                          _logger.LogInformation("{0} - Retaining SXB bot {1} ({2}) without Unity PlayerControl.", Game.Code, Client.Name, Client.Id);
+                      }
+                      else
+                      {
+                          _logger.LogInformation("{0} - Player {1} spawn timed out, kicking.", Game.Code, Client.Id);
+                          await KickAsync();
+                      }
+                  }"""
+              s = s[:start] + replacement + s[end:]
               p.write_text(s)
           print("SXB bot-only spawn timeout exemption applied.")
           PY
