@@ -651,3 +651,74 @@ replace_once(
     """            control.InitializeForServer(playerInfo.PlayerId);
             control.SpawnFlags = SpawnFlags.IsClientCharacter;""",
     "SXB player character spawn flag")
+
+
+# A normal OnlineGame lobby also needs its LobbyBehaviour object. The Unity
+# LobbyBehaviour owns the Dropship lobby presentation and is passed into
+# PlayerPhysics.CoSpawnPlayer; omitting it leaves clients with a character
+# over a blank scene and breaks the spawn animation.
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/InnerLobbyBehaviour.cs",
+    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public override ValueTask<bool> SerializeAsync(IMessageWriter writer, bool initialState)
+        {
+            return new ValueTask<bool>(false);
+        }""",
+    "LobbyBehaviour empty serializer")
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/InnerLobbyBehaviour.cs",
+    """        public override ValueTask DeserializeAsync(IClientPlayer sender, IClientPlayer? target, IMessageReader reader, bool initialState)
+        {
+            throw new NotImplementedException();
+        }""",
+    """        public override ValueTask DeserializeAsync(IClientPlayer sender, IClientPlayer? target, IMessageReader reader, bool initialState)
+        {
+            return default;
+        }""",
+    "LobbyBehaviour empty deserializer")
+
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """            if (!_allObjects.Values.OfType<InnerShipStatus>().Any())
+            {""",
+    """            if (!_allObjects.Values.OfType<InnerLobbyBehaviour>().Any())
+            {
+                var lobby = (InnerLobbyBehaviour)ActivatorUtilities.CreateInstance(
+                    _serviceProvider, typeof(InnerLobbyBehaviour), this);
+                lobby.SpawnFlags = SpawnFlags.None;
+                lobby.NetId = _nextNetId++;
+                lobby.OwnerId = ServerOwned;
+                if (!AddNetObject(lobby))
+                {
+                    throw new InvalidOperationException("Could not register the SXB lobby behaviour.");
+                }
+                await OnSpawnAsync(sender, lobby);
+                foreach (var existing in _players.Values.Where(
+                    player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
+                {
+                    await SendObjectSpawnAsync(lobby, existing.Client.Id);
+                }
+                _logger.LogInformation("Published lobby behaviour for SXB lobby {Code}.", Code);
+            }
+
+            if (!_allObjects.Values.OfType<InnerShipStatus>().Any())
+            {""",
+    "SXB lobby behaviour spawn")
+
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """                    InnerShipStatus => 0,
+                    InnerGameManager => 1,
+                    InnerPlayerInfo => 2,
+                    InnerPlayerControl => 3,
+                    _ => 4,""",
+    """                    InnerLobbyBehaviour => 0,
+                    InnerShipStatus => 1,
+                    InnerGameManager => 2,
+                    InnerPlayerInfo => 3,
+                    InnerPlayerControl => 4,
+                    _ => 5,""",
+    "SXB lobby object synchronization order")
