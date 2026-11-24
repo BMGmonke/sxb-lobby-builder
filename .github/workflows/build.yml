@@ -19,6 +19,13 @@ jobs:
           ref: v1.10.10
           path: impostor
 
+      - name: Check out SXB build scripts
+        uses: actions/checkout@v4
+        with:
+          repository: BMGmonke/sxb-lobby-builder
+          ref: main
+          path: sxb-lobby-builder
+
       - name: Install .NET 10
         uses: actions/setup-dotnet@v4
         with:
@@ -421,7 +428,7 @@ jobs:
       - name: Patch SXB bot spawning
         working-directory: impostor
         shell: bash
-        run: python3 ../scripts/patch_server.py
+        run: python3 ../sxb-lobby-builder/scripts/patch_server.py
 
       - name: Build patched ARM64 server
         working-directory: impostor
