@@ -267,7 +267,7 @@ replace_once(
         {
             foreach (var system in _systems)
             {
-                writer.StartMessage((int)system.Key);
+                writer.StartMessage((byte)system.Key);
                 system.Value.Serialize(writer, initialState);
                 writer.EndMessage();
             }
@@ -298,7 +298,7 @@ replace_once(
     {
         for (var i = 0; i < _logicComponents.Count; i++)
         {
-            writer.StartMessage(i);
+            writer.StartMessage((byte)i);
             await _logicComponents[i].SerializeAsync(writer, initialState);
             writer.EndMessage();
         }
