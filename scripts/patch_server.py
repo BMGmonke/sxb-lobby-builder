@@ -315,6 +315,16 @@ if "EnsureSxbWorldObjectsAsync" not in s:
 
 print("SXB map/player initialization patch complete")
 
+# The watcher is a general public-lobby bot, not an English/free-chat-only
+# client. Treat uint.MaxValue as a wildcard language value in the filtered
+# listing API; all ordinary language filters retain their exact-match behavior.
+replace_once(
+    "src/Impostor.Server/Http/ListingManager.cs",
+    """if (filter.SubFilter is LanguageFilter langFilter && game.Options.Keywords != (GameKeywords)langFilter.AcceptedValues)""",
+    """if (filter.SubFilter is LanguageFilter langFilter && langFilter.AcceptedValues != uint.MaxValue && game.Options.Keywords != (GameKeywords)langFilter.AcceptedValues)""",
+    "SXB watcher all-language lobby discovery")
+
+
 # The watcher starts with its own local cosmetic selection and may send a
 # SetHatStr RPC after joining. Keep the server-authoritative top hat instead
 # of allowing that client preference to overwrite the forced outfit.
