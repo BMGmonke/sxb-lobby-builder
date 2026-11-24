@@ -207,7 +207,27 @@ jobs:
                               throw new TimeoutException("BMGmonke?! did not become the first player/host within 15 seconds.");
                           }
 
-                          Log.Information("BMGmonke?! is holding the host slot. Lobby remains open for 60 seconds.");
+                          // Enter the actual game scene. Without SceneChangeFlag the
+                          // server never synchronizes game objects or creates PlayerInfo.
+                          var hostPlayerId = await botJoinedAsHost.Task;
+                          var sceneChange = MessageWriter.Get(MessageType.Reliable);
+                          try
+                          {
+                              sceneChange.StartMessage(MessageFlags.GameData);
+                              sceneChange.StartMessage(6); // GameDataTag.SceneChangeFlag
+                              sceneChange.WritePacked(hostPlayerId);
+                              sceneChange.Write("OnlineGame");
+                              sceneChange.EndMessage();
+                              sceneChange.EndMessage();
+                              await botConnection.SendAsync(sceneChange);
+                              Log.Information("BMGmonke?! sent OnlineGame scene transition for client {PlayerId}.", hostPlayerId);
+                          }
+                          finally
+                          {
+                              sceneChange.Recycle();
+                          }
+
+                          Log.Information("Waiting for host PlayerControl spawn; lobby is not ready for humans until this completes.");
                           await Task.Delay(TimeSpan.FromSeconds(60));
                       }
                       finally
