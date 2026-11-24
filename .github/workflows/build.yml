@@ -34,7 +34,9 @@ jobs:
           using System.Threading.Tasks;
           using Impostor.Api.Innersloth;
           using Impostor.Api.Innersloth.GameOptions;
+          using Impostor.Api.Net.Messages;
           using Impostor.Api.Net.Messages.C2S;
+          using Impostor.Api.Net.Messages.S2C;
           using Impostor.Hazel;
           using Impostor.Hazel.Abstractions;
           using Impostor.Hazel.Udp;
@@ -70,7 +72,22 @@ jobs:
                       {
                           connection.DataReceived = e =>
                           {
-                              Log.Information("Server response received.");
+                              while (e.Message.Position < e.Message.Length)
+                              {
+                                  using (var message = e.Message.ReadMessage())
+                                  {
+                                      if (message.Tag == MessageFlags.HostGame)
+                                      {
+                                          Message00HostGameS2C.Deserialize(message, out var gameCode);
+                                          Log.Information("Lobby created! Join code: {GameCode}", gameCode.Code);
+                                      }
+                                      else
+                                      {
+                                          Log.Information("Received server message: {Tag}", MessageFlags.FlagToString(message.Tag));
+                                      }
+                                  }
+                              }
+
                               return default;
                           };
                           connection.Disconnected = e =>
