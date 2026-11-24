@@ -198,6 +198,11 @@ replace_once(
     """            playerInfo.ClientId = sender.Client.Id;
             playerInfo.CurrentOutfit.PlayerName = sender.Client.Name;
             playerInfo.CurrentOutfit.Color = Impostor.Api.Innersloth.Customization.ColorType.Cyan;
+            playerInfo.CurrentOutfit.HatId = "hat_NoHat";
+            playerInfo.CurrentOutfit.PetId = "pet_EmptyPet";
+            playerInfo.CurrentOutfit.SkinId = "skin_None";
+            playerInfo.CurrentOutfit.VisorId = "visor_EmptyVisor";
+            playerInfo.CurrentOutfit.NamePlateId = "nameplate_NoPlate";
             playerInfo.FriendCode = sender.Client.FriendCode;""",
     "SXB PlayerInfo identity")
 
