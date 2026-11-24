@@ -571,3 +571,55 @@ replace_once(
             }
         }""",
     "SXB late-join object synchronization")
+
+
+# Every child InnerNetObject has its own NetId. Repeating the prefab root's
+# NetId causes the client to reject PlayerPhysics and NetworkTransform as
+# duplicate objects, leaving the remote player with a broken render/movement.
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Outgoing.cs",
+    """                writer.WritePacked(obj.NetId);
+                writer.StartMessage(1);""",
+    """                writer.WritePacked(component.NetId);
+                writer.StartMessage(1);""",
+    "SXB child component NetIds")
+
+# A bot host exists before any human joins. Its PlayerControl must therefore
+# be marked as an existing player when serialized to later joiners.
+replace_once(
+    "src/Impostor.Server/Net/Inner/Objects/InnerPlayerControl.cs",
+    """        internal void InitializeForServer(byte playerId)
+        {
+            IsNew = true;
+            PlayerId = playerId;
+        }""",
+    """        internal void InitializeForServer(byte playerId)
+        {
+            IsNew = true;
+            PlayerId = playerId;
+        }
+
+        internal void MarkAsExisting()
+        {
+            IsNew = false;
+        }""",
+    "SXB PlayerControl existing-state marker")
+
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """            foreach (var existing in _players.Values.Where(
+                player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
+            {
+                await SendObjectSpawnAsync(control, existing.Client.Id);
+            }
+
+            _logger.LogInformation("Spawned server-side PlayerControl""",
+    """            foreach (var existing in _players.Values.Where(
+                player => player.Client.Id != sender.Client.Id && player.Scene == "OnlineGame"))
+            {
+                await SendObjectSpawnAsync(control, existing.Client.Id);
+            }
+
+            control.MarkAsExisting();
+            _logger.LogInformation("Spawned server-side PlayerControl""",
+    "SXB PlayerControl late-join state")
