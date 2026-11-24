@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -414,3 +414,22 @@ jobs:
           path: publish/
           if-no-files-found: error
           retention-days: 7
+
+      - name: Package public ARM64 downloads
+        shell: bash
+        run: |
+          cd server-publish && zip -qr ../sxb-impostor-server-linux-arm64.zip . && cd ..
+          cd publish && zip -qr ../sxb-lobby-host-linux-arm64.zip . && cd ..
+
+      - name: Publish public release downloads
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sxb-latest
+          name: SXB latest successful ARM64 build
+          target_commitish: main
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          files: |
+            sxb-impostor-server-linux-arm64.zip
+            sxb-lobby-host-linux-arm64.zip
