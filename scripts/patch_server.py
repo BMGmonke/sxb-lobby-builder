@@ -616,21 +616,7 @@ replace_once(
     "SXB PlayerControl late-join state")
 
 
-# The initial CustomNetworkTransform component payload includes both position
-# and velocity vectors. Omitting the velocity leaves the Unity client reading
-# an incomplete transform and can prevent the remote character from rendering
-# and animating correctly.
-replace_once(
-    "src/Impostor.Server/Net/Inner/Objects/Components/InnerCustomNetworkTransform.cs",
-    """                writer.Write(_lastSequenceId);
-                writer.Write(Position);
-                return new ValueTask<bool>(true);""",
-    """                writer.Write(_lastSequenceId);
-                writer.Write(Position);
-                writer.Write(System.Numerics.Vector2.Zero);
-                return new ValueTask<bool>(true);""",
-    "SXB initial network transform velocity")
-
+# Preserve the upstream InnerCustomNetworkTransform initial-state wire format.
 
 # Among Us creates each joining player's character prefab with the
 # IsClientCharacter spawn flag. Without it, clients may register the network
