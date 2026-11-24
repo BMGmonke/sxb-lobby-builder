@@ -50,7 +50,7 @@ jobs:
 
                       var handshake = MessageWriter.Get(MessageType.Reliable);
                       handshake.Write(50666750);
-                      handshake.Write("SXB 60s Lobby Host");
+                      handshake.Write("SXBHost");
                       handshake.Write((uint)0);
                       handshake.Write((uint)Language.English);
                       handshake.Write((byte)QuickChatModes.FreeChatOrQuickChat);
