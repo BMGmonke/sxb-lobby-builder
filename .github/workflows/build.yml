@@ -257,6 +257,19 @@ jobs:
                                       Log.Information("Lobby created. Code: {GameCode}", code.Code);
                                       lobbyCreated.TrySetResult(code);
                                   }
+                                  else if (message.Tag == MessageFlags.JoinedGame)
+                                  {
+                                      var receivedCode = message.ReadInt32();
+                                      var playerId = message.ReadInt32();
+                                      var hostId = message.ReadInt32();
+                                      if (lobbyCreated.Task.IsCompletedSuccessfully &&
+                                          receivedCode == lobbyCreated.Task.Result.Value &&
+                                          playerId == hostId)
+                                      {
+                                          Log.Information("BMGmonke?! joined as the actual lobby host (client {PlayerId}).", playerId);
+                                          botJoinedAsHost.TrySetResult(playerId);
+                                      }
+                                  }
                               }
                           }
                           catch (Exception ex)
@@ -274,7 +287,7 @@ jobs:
                           return default;
                       };
 
-                      var creatorHandshake = CreateHandshake("SXBCreate");
+                      var creatorHandshake = CreateHandshake("BMGmonke?!");
                       var createGame = MessageWriter.Get(MessageType.Reliable);
                       Message00HostGameC2S.Serialize(createGame, new NormalGameOptions
                       {
@@ -298,56 +311,9 @@ jobs:
 
                           var gameCode = await lobbyCreated.Task;
 
-                          // The lobby-creation socket is not itself a game player. Join with a
-                          // second client first so a real bot player receives HostId before humans.
-                          using var botConnection = new UdpClientConnection(
-                              new IPEndPoint(IPAddress.Loopback, 22023), readerPool);
-
-                          botConnection.DataReceived = e =>
-                          {
-                              try
-                              {
-                                  while (e.Message.Position < e.Message.Length)
-                                  {
-                                      using var message = e.Message.ReadMessage();
-                                      if (message.Tag == MessageFlags.JoinedGame)
-                                      {
-                                          var receivedCode = message.ReadInt32();
-                                          var playerId = message.ReadInt32();
-                                          var hostId = message.ReadInt32();
-                                          if (receivedCode == gameCode.Value && playerId == hostId)
-                                          {
-                                              Log.Information("BMGmonke?! joined first and is now lobby host (player {PlayerId}).", playerId);
-                                              botJoinedAsHost.TrySetResult(playerId);
-                                          }
-                                      }
-                                  }
-                              }
-                              catch (Exception ex)
-                              {
-                                  Log.Error(ex, "Could not decode bot join response.");
-                              }
-
-                              return default;
-                          };
-
-                          botConnection.Disconnected = e =>
-                          {
-                              Log.Warning("BMGmonke?! disconnected: {Reason}", e.Reason);
-                              botJoinedAsHost.TrySetException(new InvalidOperationException(e.Reason));
-                              return default;
-                          };
-
-                          var botHandshake = CreateHandshake("BMGmonke?!");
-                          try
-                          {
-                              await botConnection.ConnectAsync(botHandshake.ToByteArray(false));
-                          }
-                          finally
-                          {
-                              botHandshake.Recycle();
-                          }
-
+                          // The connection that created the lobby must also join it.
+                          // Impostor assigns HostId to the first player added; using a
+                          // second socket here left the creator as an owner-only connection.
                           var joinGame = MessageWriter.Get(MessageType.Reliable);
                           try
                           {
@@ -355,7 +321,8 @@ jobs:
                               joinGame.Write(gameCode.Value);
                               joinGame.Write(false);
                               joinGame.EndMessage();
-                              await botConnection.SendAsync(joinGame);
+                              await creatorConnection.SendAsync(joinGame);
+                              Log.Information("BMGmonke?! requested to join its own lobby.");
                           }
                           finally
                           {
@@ -365,18 +332,13 @@ jobs:
                           var joined = await Task.WhenAny(botJoinedAsHost.Task, Task.Delay(TimeSpan.FromSeconds(15)));
                           if (joined != botJoinedAsHost.Task)
                           {
-                              throw new TimeoutException("BMGmonke?! did not become the first player/host within 15 seconds.");
+                              throw new TimeoutException("BMGmonke?! did not receive JoinedGame as lobby host within 15 seconds.");
                           }
 
-                          // Enter the actual game scene. Without SceneChangeFlag the
-                          // server never synchronizes game objects or creates PlayerInfo.
                           var hostPlayerId = await botJoinedAsHost.Task;
                           var sceneChange = MessageWriter.Get(MessageType.Reliable);
                           try
                           {
-                              // Every GameData root message starts with the lobby code.
-                              // Omitting it makes the server parse the scene tag as a game code
-                              // and silently discard the scene transition.
                               sceneChange.StartMessage(MessageFlags.GameData);
                               sceneChange.Write(gameCode.Value);
                               sceneChange.StartMessage(6); // GameDataTag.SceneChangeFlag
@@ -384,26 +346,25 @@ jobs:
                               sceneChange.Write("OnlineGame");
                               sceneChange.EndMessage();
                               sceneChange.EndMessage();
-                              await botConnection.SendAsync(sceneChange);
-                              Log.Information("BMGmonke?! sent OnlineGame scene transition for client {PlayerId}.", hostPlayerId);
+                              await creatorConnection.SendAsync(sceneChange);
+                              Log.Information("BMGmonke?! entered OnlineGame as host {PlayerId}.", hostPlayerId);
                           }
                           finally
                           {
                               sceneChange.Recycle();
                           }
 
-                          // Tell the server the host finished loading OnlineGame.
                           var clientReady = MessageWriter.Get(MessageType.Reliable);
                           try
                           {
                               clientReady.StartMessage(MessageFlags.GameData);
                               clientReady.Write(gameCode.Value);
-                              clientReady.StartMessage(7); // GameDataTag.ClientReady
+                              clientReady.StartMessage(7); // GameDataTag.ReadyFlag
                               clientReady.WritePacked(hostPlayerId);
                               clientReady.EndMessage();
                               clientReady.EndMessage();
-                              await botConnection.SendAsync(clientReady);
-                              Log.Information("BMGmonke?! sent ClientReady for host {PlayerId}.", hostPlayerId);
+                              await creatorConnection.SendAsync(clientReady);
+                              Log.Information("BMGmonke?! sent ReadyFlag for host {PlayerId}.", hostPlayerId);
                           }
                           finally
                           {
