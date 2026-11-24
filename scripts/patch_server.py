@@ -773,16 +773,3 @@ replace_once(
                         }""",
     "Reject non-host GameManager option updates")
 
-# The Dropship lobby is permanently Polus. The protocol watcher may still
-# send a GameManager options packet through a path that marks it host-authorized;
-# never allow any incoming LogicOptions payload to replace the map. Preserve all
-# other host-selected settings, but restore Polus immediately after decoding.
-replace_once(
-    "src/Impostor.Server/Net/Inner/Objects/GameManager/Logic/LogicOptions.cs",
-    """            GameOptionsFactory.DeserializeInto(reader, _game.Options);
-            await _eventManager.CallAsync(new GameOptionsChangedEvent(""",
-    """            GameOptionsFactory.DeserializeInto(reader, _game.Options);
-            _game.Options.Map = Impostor.Api.Innersloth.GameOptions.MapTypes.Polus;
-            await _eventManager.CallAsync(new GameOptionsChangedEvent(""",
-    "Hard-lock SXB lobby map to Polus")
-
