@@ -63,10 +63,10 @@ jobs:
           {
               internal static class Program
               {
-                  private static MessageWriter CreateHandshake(string name)
+                  private static MessageWriter CreateHandshake(string name, int version = 50666750)
                   {
                       var writer = MessageWriter.Get(MessageType.Reliable);
-                      writer.Write(50666750);
+                      writer.Write(version);
                       writer.Write(name);
                       writer.Write((uint)0);
                       writer.Write((uint)Language.English);
@@ -286,6 +286,7 @@ jobs:
                       var lobbyCreated = new TaskCompletionSource<GameCode>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var botJoinedAsHost = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var watcherControlSeen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                      var watcherPlayerInfoSeen = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                       var hostPlayerId = -1;
 
                       using var creatorConnection = new UdpClientConnection(
@@ -331,10 +332,21 @@ jobs:
                                           var ownerId = gameData.ReadPackedInt32();
                                           gameData.ReadByte();
                                           var componentCount = gameData.ReadPackedInt32();
+                                          var spawnedClientId = -1;
                                           for (var component = 0; component < componentCount; component++)
                                           {
                                               gameData.ReadPackedUInt32();
                                               using var payload = gameData.ReadMessage();
+                                              if (objectType == 11 && component == 0)
+                                              {
+                                                  payload.ReadByte(); // PlayerId
+                                                  spawnedClientId = payload.ReadPackedInt32(); // ClientId
+                                              }
+                                          }
+                                          if (objectType == 11 && spawnedClientId != -1 && spawnedClientId != hostPlayerId)
+                                          {
+                                              Log.Information("BMGmonke?! received PlayerInfo for another lobby member (client {ClientId}).", spawnedClientId);
+                                              watcherPlayerInfoSeen.TrySetResult(true);
                                           }
                                           if (objectType == 4 && ownerId != hostPlayerId)
                                           {
@@ -360,7 +372,9 @@ jobs:
                           return default;
                       };
 
-                      var creatorHandshake = CreateHandshake("BMGmonke?!");
+                      // Revision 25 sets Impostor's DisableServerAuthority flag, matching
+                      // real public-lobby hosts that own PlayerInfo spawning.
+                      var creatorHandshake = CreateHandshake("BMGmonke?!", 50666775);
                       var createGame = MessageWriter.Get(MessageType.Reliable);
                       Message00HostGameC2S.Serialize(createGame, new NormalGameOptions
                       {
@@ -584,6 +598,8 @@ jobs:
           grep -q "SXBWatcher received its PlayerControl spawn" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "SXBWatcher confirmed its PlayerControl was delivered" "$RUNNER_TEMP/sxb-watcher-smoke.log"
           grep -q "BMGmonke?! received another player's PlayerControl spawn" "$RUNNER_TEMP/sxb-host-smoke.log"
+          grep -q "BMGmonke?! received PlayerInfo for another lobby member" "$RUNNER_TEMP/sxb-host-smoke.log"
+          grep -q "host-authoritative=True" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Published lobby behaviour" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Published Polus ship object" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Spawned server-side PlayerControl" "$RUNNER_TEMP/sxb-server-smoke.log"
