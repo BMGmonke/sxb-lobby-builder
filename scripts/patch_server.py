@@ -753,7 +753,7 @@ replace_once(
                         }""",
     """                        if (_allObjects.TryGetValue(netId, out var obj))
                         {
-                            if (obj is InnerGameManager && !sender.IsHost)
+                            if (obj is InnerGameManager && (!sender.IsHost || sender.Client.Name == "SXBWatcher"))
                             {
                                 _logger.LogWarning(
                                     "{PlayerName} ({ClientId}) attempted to update host-authoritative game options; ignoring.",
