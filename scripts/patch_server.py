@@ -639,3 +639,15 @@ replace_once(
                 writer.Write(System.Numerics.Vector2.Zero);
                 return new ValueTask<bool>(true);""",
     "SXB initial network transform velocity")
+
+
+# Among Us creates each joining player's character prefab with the
+# IsClientCharacter spawn flag. Without it, clients may register the network
+# object but fail to initialize the visible/local character graph correctly.
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """            control.InitializeForServer(playerInfo.PlayerId);
+            control.SpawnFlags = SpawnFlags.None;""",
+    """            control.InitializeForServer(playerInfo.PlayerId);
+            control.SpawnFlags = SpawnFlags.IsClientCharacter;""",
+    "SXB player character spawn flag")
