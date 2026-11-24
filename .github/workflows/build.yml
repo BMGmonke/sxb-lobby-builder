@@ -434,13 +434,14 @@ jobs:
 
           grep -q "Lobby created. Code:" "$RUNNER_TEMP/sxb-host-smoke.log"
           grep -q "BMGmonke?! joined as the actual lobby host" "$RUNNER_TEMP/sxb-host-smoke.log"
+          grep -q "Published lobby behaviour" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Published Polus ship object" "$RUNNER_TEMP/sxb-server-smoke.log"
           grep -q "Spawned server-side PlayerControl" "$RUNNER_TEMP/sxb-server-smoke.log"
           if grep -q "NotImplementedException" "$RUNNER_TEMP/sxb-server-smoke.log"; then
             echo "Smoke test failed: an unimplemented serializer crashed object spawning."
             exit 1
           fi
-          echo "SXB Polus ShipStatus and PlayerControl spawn smoke test passed."
+          echo "SXB Dropship lobby, Polus ShipStatus and PlayerControl spawn smoke test passed."
 
       - name: Upload client artifact
         uses: actions/upload-artifact@v4
