@@ -131,8 +131,19 @@ new = """            await SendObjectSpawnAsync(playerInfo);
                 }
                 await OnSpawnAsync(sender, component);
             }
+
+            // The fake host has no Unity client to calculate its initial spawn
+            // transform. Give every SXB-created player the map's real spawn point
+            // before its NetworkTransform is serialized to joining clients.
+            if (GameNet.ShipStatus is { } shipStatus)
+            {
+                await control.NetworkTransform.SetPositionAsync(
+                    sender,
+                    shipStatus.GetSpawnLocation(control, PlayerCount, true));
+            }
+
             await SendObjectSpawnAsync(control);
-            _logger.LogInformation("Spawned server-side PlayerControl for {Name}, player ID {PlayerId}.", sender.Client.Name, playerInfo.PlayerId);
+            _logger.LogInformation("Spawned server-side PlayerControl for {Name}, player ID {PlayerId} at {Position}.", sender.Client.Name, playerInfo.PlayerId, control.NetworkTransform.Position);
         }
 
         private async ValueTask DespawnPlayerInfoAsync"""
@@ -307,3 +318,54 @@ replace_once(
     }""",
     "GameManager logic-state serializer")
 
+
+
+# Late joiners must receive the fake host's PlayerControl too. The original
+# server sync only retransmits ServerOwned objects, while SXB PlayerControls
+# retain the fake client's owner ID. Sync the SXB root control (not its child
+# components) after the map and PlayerInfo dependencies.
+replace_once(
+    "src/Impostor.Server/Net/State/Game.Data.cs",
+    """        private async ValueTask SyncServerObjectsAsync(ClientPlayer sender)
+        {
+            foreach (var obj in _allObjects.Values)
+            {
+                if (obj.OwnerId == ServerOwned)
+                {
+                    _logger.LogTrace("Syncing {Type} {NetId}", obj.GetType(), obj.NetId);
+                    await SendObjectSpawnAsync(obj, sender.Client.Id);
+                }
+            }
+        }""",
+    """        private async ValueTask SyncServerObjectsAsync(ClientPlayer sender)
+        {
+            var objects = _allObjects.Values
+                .Where(obj =>
+                    obj.OwnerId == ServerOwned ||
+                    (obj is InnerPlayerControl control &&
+                     control.OwnerId != sender.Client.Id &&
+                     TryGetPlayer(control.OwnerId, out var owner) &&
+                     owner.Client.Name is "BMGmonke?!" or "SXBWatcher"))
+                .OrderBy(obj => obj switch
+                {
+                    InnerShipStatus => 0,
+                    InnerGameManager => 1,
+                    InnerPlayerInfo => 2,
+                    InnerPlayerControl => 3,
+                    _ => 4,
+                })
+                .ToArray();
+
+            foreach (var obj in objects)
+            {
+                _logger.LogInformation(
+                    "Syncing {Type} {NetId} (owner {OwnerId}) to {PlayerName} ({ClientId}).",
+                    obj.GetType().Name,
+                    obj.NetId,
+                    obj.OwnerId,
+                    sender.Client.Name,
+                    sender.Client.Id);
+                await SendObjectSpawnAsync(obj, sender.Client.Id);
+            }
+        }""",
+    "SXB late-join object synchronization")
