@@ -415,6 +415,48 @@ jobs:
           }
           CS
 
+      - name: Patch SXB bot spawn timeout and build ARM64 server
+        working-directory: impostor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("src/Impostor.Server/Net/State/ClientPlayer.cs")
+          s = p.read_text()
+          old = '''                if (Character == null)
+                {
+                    _logger.LogInformation("{0} - Player {1} spawn timed out, kicking.", Game.Code, Client.Id);
+
+                    await KickAsync();
+                }'''
+          new = '''                if (Character == null)
+                {
+                    if (Client.Name is "SXBWatcher" or "BMGmonke?!")
+                    {
+                        _logger.LogInformation("{0} - Retaining SXB bot {1} ({2}) without Unity PlayerControl.", Game.Code, Client.Name, Client.Id);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("{0} - Player {1} spawn timed out, kicking.", Game.Code, Client.Id);
+                        await KickAsync();
+                    }
+                }'''
+          if "Retaining SXB bot" not in s:
+              if old not in s:
+                  raise SystemExit("Expected Impostor v1.10.10 spawn-timeout code was not found.")
+              p.write_text(s.replace(old, new, 1))
+          print("SXB bot-only spawn timeout exemption applied.")
+          PY
+          dotnet publish src/Impostor.Server/Impostor.Server.csproj -c Release -r linux-arm64 --self-contained false -p:UseAppHost=false -o ../server-publish
+
+      - name: Upload patched ARM64 server
+        uses: actions/upload-artifact@v4
+        with:
+          name: sxb-impostor-server-linux-arm64
+          path: server-publish/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Build ARM64 client
         working-directory: impostor
         run: dotnet publish src/Impostor.Client.App/Impostor.Client.App.csproj -c Release -r linux-arm64 --self-contained false -p:UseAppHost=false -o ../publish
