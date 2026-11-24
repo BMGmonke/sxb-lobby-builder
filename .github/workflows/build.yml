@@ -118,6 +118,7 @@ jobs:
                   {
                       using var connection = new UdpClientConnection(endpoint, readerPool);
                       var joined = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                      var joinedPlayerId = -1;
                       connection.DataReceived = e =>
                       {
                           try
@@ -132,6 +133,7 @@ jobs:
                                       var hostId = message.ReadInt32();
                                       if (receivedCode == gameCode.Value)
                                       {
+                                          joinedPlayerId = playerId;
                                           Log.Information("SXBWatcher received JoinedGame: player {PlayerId}, lobby host {HostId}.", playerId, hostId);
                                           joined.TrySetResult(true);
                                       }
@@ -165,6 +167,39 @@ jobs:
 
                       var completed = await Task.WhenAny(joined.Task, Task.Delay(TimeSpan.FromSeconds(12)));
                       if (completed != joined.Task || !await joined.Task) return false;
+
+                      // JoinedGame registers the connection, but does not create the
+                      // visible player object. Each client must enter OnlineGame.
+                      var sceneChange = MessageWriter.Get(MessageType.Reliable);
+                      try
+                      {
+                          sceneChange.StartMessage(MessageFlags.GameData);
+                          sceneChange.Write(gameCode.Value);
+                          sceneChange.StartMessage(6); // GameDataTag.SceneChangeFlag
+                          sceneChange.WritePacked(joinedPlayerId);
+                          sceneChange.Write("OnlineGame");
+                          sceneChange.EndMessage();
+                          sceneChange.EndMessage();
+                          await connection.SendAsync(sceneChange);
+                          Log.Information("SXBWatcher sent OnlineGame scene transition for player {PlayerId}.", joinedPlayerId);
+                      }
+                      finally { sceneChange.Recycle(); }
+
+                      var clientReady = MessageWriter.Get(MessageType.Reliable);
+                      try
+                      {
+                          clientReady.StartMessage(MessageFlags.GameData);
+                          clientReady.Write(gameCode.Value);
+                          clientReady.StartMessage(7); // GameDataTag.ReadyFlag
+                          clientReady.WritePacked(joinedPlayerId);
+                          clientReady.EndMessage();
+                          clientReady.EndMessage();
+                          await connection.SendAsync(clientReady);
+                          Log.Information("SXBWatcher sent ReadyFlag for player {PlayerId}.", joinedPlayerId);
+                      }
+                      finally { clientReady.Recycle(); }
+
+                      Log.Information("SXBWatcher completed the lobby scene handshake; waiting for player synchronization.");
                       await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan);
                       return true;
                   }
