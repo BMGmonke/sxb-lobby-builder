@@ -59,7 +59,7 @@ jobs:
                       handshake.Write((byte)0);
 
                       var createGame = MessageWriter.Get(MessageType.Reliable);
-                      Message00HostGameC2S.Serialize(createGame, new LegacyGameOptionsData
+                      Message00HostGameC2S.Serialize(createGame, new NormalGameOptions
                       {
                           MaxPlayers = 4,
                           NumImpostors = 1,
